@@ -199,7 +199,14 @@ func (e *DeepSeekWebExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Au
 	if errToken != nil {
 		return nil, errToken
 	}
+	if userToken == "" {
+		return nil, fmt.Errorf("deepseek-web executor: refresh requires a userToken")
+	}
 	if _, errAcquire := e.acquireAccessToken(ctx, auth, userToken); errAcquire != nil {
+		var expiredErr deepSeekWebTokenExpiredError
+		if errors.As(errAcquire, &expiredErr) {
+			log.Warnf("deepseek-web executor: userToken expired for auth %s — re-login required", auth.ID)
+		}
 		return nil, errAcquire
 	}
 	return auth, nil
@@ -304,10 +311,19 @@ func (e *DeepSeekWebExecutor) acquireAccessToken(ctx context.Context, auth *clip
 	if errRead != nil {
 		return "", errRead
 	}
+	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
+		return "", deepSeekWebTokenExpiredError{detail: fmt.Sprintf("users/current HTTP %d", response.StatusCode)}
+	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return "", statusErr{code: response.StatusCode, msg: string(body)}
 	}
 	if code := gjson.GetBytes(body, "code").Int(); code != 0 {
+		if code == 40003 {
+			return "", deepSeekWebTokenExpiredError{detail: "users/current rejected token (code 40003)"}
+		}
+		if code == 40002 {
+			return "", statusErr{code: http.StatusTooManyRequests, msg: string(body)}
+		}
 		return "", statusErr{code: http.StatusUnauthorized, msg: string(body)}
 	}
 	token := strings.TrimSpace(gjson.GetBytes(body, "data.biz_data.token").String())
@@ -552,6 +568,26 @@ type deepSeekWebRequestError struct{ message string }
 func (e deepSeekWebRequestError) Error() string         { return e.message }
 func (e deepSeekWebRequestError) StatusCode() int       { return http.StatusBadRequest }
 func (e deepSeekWebRequestError) IsRequestScoped() bool { return true }
+
+// deepSeekWebTokenExpiredError signals that the stored userToken itself is dead:
+// users/current rejected it with 401/403 or the DeepSeek business code 40003
+// ("Authorization Failed"). This is NOT a transient short-token refresh failure —
+// the browser credential has expired and can only be recovered by re-logging in
+// (WeChat scan / SMS code) and copying a fresh userToken from Local Storage.
+//
+// It is intentionally NOT request-scoped: a dead credential must not be retried,
+// and callers (scheduler / manual re-login flow) can detect it via errors.As and
+// surface the re-login guidance instead of a generic 401.
+type deepSeekWebTokenExpiredError struct{ detail string }
+
+func (e deepSeekWebTokenExpiredError) Error() string {
+	if strings.TrimSpace(e.detail) == "" {
+		return "deepseek-web executor: userToken expired — re-login to chat.deepseek.com and copy a fresh userToken from Local Storage"
+	}
+	return "deepseek-web executor: userToken expired (" + e.detail + ") — re-login to chat.deepseek.com and copy a fresh userToken from Local Storage"
+}
+func (e deepSeekWebTokenExpiredError) StatusCode() int       { return http.StatusUnauthorized }
+func (e deepSeekWebTokenExpiredError) IsRequestScoped() bool { return false }
 
 func deepSeekWebResponseError(response *http.Response) error {
 	if response == nil {
