@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -149,5 +150,64 @@ func TestDeepSeekWebExecutorExecute(t *testing.T) {
 		if !strings.Contains(joined, required) {
 			t.Fatalf("request paths %q missing %q", joined, required)
 		}
+	}
+}
+
+func TestDeepSeekWebRefreshTokenExpired(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		body   string
+	}{
+		{name: "http_401", status: http.StatusUnauthorized, body: `{}`},
+		{name: "http_403", status: http.StatusForbidden, body: `{}`},
+		{name: "code_40003", status: http.StatusOK, body: `{"code":40003,"msg":"Authorization Failed"}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tt.status)
+				fmt.Fprint(w, tt.body)
+			}))
+			defer server.Close()
+
+			executor := NewDeepSeekWebExecutor(nil)
+			auth := &cliproxyauth.Auth{ID: "auth-1", Attributes: map[string]string{"api_key": `{"value":"user-token"}`, "base_url": server.URL}}
+
+			_, err := executor.Refresh(context.Background(), auth)
+			if err == nil {
+				t.Fatal("Refresh() expected error for expired userToken")
+			}
+			var expiredErr deepSeekWebTokenExpiredError
+			if !errors.As(err, &expiredErr) {
+				t.Fatalf("Refresh() error type = %T, want deepSeekWebTokenExpiredError", err)
+			}
+			if expiredErr.StatusCode() != http.StatusUnauthorized {
+				t.Fatalf("StatusCode() = %d, want 401", expiredErr.StatusCode())
+			}
+			if expiredErr.IsRequestScoped() {
+				t.Fatal("IsRequestScoped() = true, want false for a dead credential")
+			}
+		})
+	}
+}
+
+func TestDeepSeekWebRefreshTokenValid(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"code":0,"data":{"biz_data":{"token":"short-token"}}}`)
+	}))
+	defer server.Close()
+
+	executor := NewDeepSeekWebExecutor(nil)
+	auth := &cliproxyauth.Auth{ID: "auth-1", Attributes: map[string]string{"api_key": `{"value":"user-token"}`, "base_url": server.URL}}
+
+	updated, err := executor.Refresh(context.Background(), auth)
+	if err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+	if updated == nil || updated.ID != "auth-1" {
+		t.Fatalf("Refresh() returned auth = %#v", updated)
 	}
 }
