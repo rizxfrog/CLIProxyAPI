@@ -490,6 +490,18 @@ nonstream-keepalive-interval: 0
 #     excluded-models:
 #       - "deepseek-v3-2-volc"   # exclude specific models (exact match)
 
+# DeepSeek Web browser userToken. Copy userToken from chat.deepseek.com Local Storage;
+# either the raw token or the full {"value":"...","__version":"0"} JSON is accepted.
+# This provider uses DeepSeek's private web API and may break when the web client changes.
+# deepseek-web-api-key:
+#   - api-key: '{"value":"YOUR_USER_TOKEN","__version":"0"}'
+#     weight: 1
+#     prefix: "ds-web" # optional: require ds-web/deepseek-chat
+#     base-url: "https://chat.deepseek.com" # optional override, mainly for testing
+#     proxy-url: "socks5://proxy.example.com:1080" # optional per-token proxy
+#     excluded-models:
+#       - "deepseek-v4-pro-search"
+
 # Claude API keys
 # claude-api-key:
 #   - api-key: "sk-atSM..." # use the official claude API key, no need to set the base url

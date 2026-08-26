@@ -624,6 +624,12 @@ func (m CodeBuddyCNModel) GetForceMapping() bool                  { return m.For
 func (m CodeBuddyCNModel) GetIsCompat() bool                      { return m.IsCompat }
 func (m CodeBuddyCNModel) GetThinking() *registry.ThinkingSupport { return m.Thinking }
 
+// DeepSeekWebKey uses the API-key entry shape to store a DeepSeek browser userToken.
+type DeepSeekWebKey = CodeBuddyCNKey
+
+// DeepSeekWebModel uses the shared static/configured model mapping shape.
+type DeepSeekWebModel = CodeBuddyCNModel
+
 // GeminiKey represents the configuration for a Gemini API key,
 // including optional overrides for upstream base URL, proxy routing, and headers.
 type GeminiKey struct {

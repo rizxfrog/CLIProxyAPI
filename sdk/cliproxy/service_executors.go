@@ -209,6 +209,7 @@ func baselineExecutorAuths() []*coreauth.Auth {
 		"antigravity",
 		"kimi",
 		"codebuddy-cn",
+		constant.DeepSeekWeb,
 		"xai",
 		"openai-compatibility",
 	}
@@ -295,6 +296,8 @@ func (s *Service) registerExecutorForAuth(a *coreauth.Auth, forceReplace bool) {
 		s.coreManager.RegisterExecutor(executor.NewKimiExecutor(cfg))
 	case "codebuddy-cn":
 		s.coreManager.RegisterExecutor(executor.NewCodeBuddyCNExecutor(cfg))
+	case constant.DeepSeekWeb:
+		s.coreManager.RegisterExecutor(executor.NewDeepSeekWebExecutor(cfg))
 	case "xai":
 		if !forceReplace {
 			existingExecutor, hasExecutor := s.coreManager.Executor("xai")
