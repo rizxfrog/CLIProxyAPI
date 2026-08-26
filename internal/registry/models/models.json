@@ -3874,6 +3874,100 @@
       "max_completion_tokens": 32768
     }
   ],
+  "deepseek-web": [
+    {
+      "id": "deepseek-v4-pro",
+      "object": "model",
+      "created": 1787702400,
+      "owned_by": "deepseek",
+      "type": "deepseek-web",
+      "display_name": "DeepSeek V4 Pro",
+      "description": "DeepSeek Web expert mode",
+      "context_length": 128000,
+      "max_completion_tokens": 32768
+    },
+    {
+      "id": "deepseek-v4-pro-think",
+      "object": "model",
+      "created": 1787702400,
+      "owned_by": "deepseek",
+      "type": "deepseek-web",
+      "display_name": "DeepSeek V4 Pro Think",
+      "description": "DeepSeek Web expert mode with reasoning",
+      "context_length": 128000,
+      "max_completion_tokens": 32768,
+      "thinking": {"zero_allowed": true, "levels": ["low", "medium", "high"]}
+    },
+    {
+      "id": "deepseek-v4-pro-search",
+      "object": "model",
+      "created": 1787702400,
+      "owned_by": "deepseek",
+      "type": "deepseek-web",
+      "display_name": "DeepSeek V4 Pro Search",
+      "description": "DeepSeek Web expert mode with web search",
+      "context_length": 128000,
+      "max_completion_tokens": 32768
+    },
+    {
+      "id": "deepseek-v4-pro-think-search",
+      "object": "model",
+      "created": 1787702400,
+      "owned_by": "deepseek",
+      "type": "deepseek-web",
+      "display_name": "DeepSeek V4 Pro Think + Search",
+      "description": "DeepSeek Web expert mode with reasoning and web search",
+      "context_length": 128000,
+      "max_completion_tokens": 32768,
+      "thinking": {"zero_allowed": true, "levels": ["low", "medium", "high"]}
+    },
+    {
+      "id": "deepseek-v4-flash",
+      "object": "model",
+      "created": 1787702400,
+      "owned_by": "deepseek",
+      "type": "deepseek-web",
+      "display_name": "DeepSeek V4 Flash",
+      "description": "DeepSeek Web instant mode",
+      "context_length": 128000,
+      "max_completion_tokens": 32768
+    },
+    {
+      "id": "deepseek-v4-flash-think",
+      "object": "model",
+      "created": 1787702400,
+      "owned_by": "deepseek",
+      "type": "deepseek-web",
+      "display_name": "DeepSeek V4 Flash Think",
+      "description": "DeepSeek Web instant mode with reasoning",
+      "context_length": 128000,
+      "max_completion_tokens": 32768,
+      "thinking": {"zero_allowed": true, "levels": ["low", "medium", "high"]}
+    },
+    {
+      "id": "deepseek-chat",
+      "object": "model",
+      "created": 1787702400,
+      "owned_by": "deepseek",
+      "type": "deepseek-web",
+      "display_name": "DeepSeek Chat (Web)",
+      "description": "DeepSeek Web default chat model",
+      "context_length": 128000,
+      "max_completion_tokens": 32768
+    },
+    {
+      "id": "deepseek-reasoner",
+      "object": "model",
+      "created": 1787702400,
+      "owned_by": "deepseek",
+      "type": "deepseek-web",
+      "display_name": "DeepSeek Reasoner (Web)",
+      "description": "DeepSeek Web reasoning mode",
+      "context_length": 128000,
+      "max_completion_tokens": 32768,
+      "thinking": {"zero_allowed": true, "levels": ["low", "medium", "high"]}
+    }
+  ],
   "codebuddy-cn": [
     {
       "id": "hy3",

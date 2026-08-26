@@ -28,6 +28,9 @@ const (
 	// CodeBuddyCN represents the CodeBuddy CN (Tencent) provider identifier.
 	CodeBuddyCN = "codebuddy-cn"
 
+	// DeepSeekWeb represents the DeepSeek authenticated web-session provider identifier.
+	DeepSeekWeb = "deepseek-web"
+
 	// Interactions represents the Google Interactions API format identifier.
 	Interactions = "interactions"
 )

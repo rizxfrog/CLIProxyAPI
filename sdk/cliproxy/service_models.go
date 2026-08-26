@@ -155,6 +155,17 @@ func (s *Service) registerModelsForAuthWithCache(ctx context.Context, a *coreaut
 			}
 		}
 		models = applyExcludedModels(models, excluded)
+	case constant.DeepSeekWeb:
+		models = registry.GetDeepSeekWebModels()
+		if entry := s.resolveConfigDeepSeekWebKey(a); entry != nil {
+			if len(entry.Models) > 0 {
+				models = buildDeepSeekWebConfigModels(entry)
+			}
+			if authKind == "apikey" {
+				excluded = entry.ExcludedModels
+			}
+		}
+		models = applyExcludedModels(models, excluded)
 	case "xai":
 		models = registry.GetXAIModels()
 		if entry := s.resolveConfigXAIKey(a); entry != nil {
@@ -834,6 +845,20 @@ func buildCodeBuddyCNConfigModels(entry *config.CodeBuddyCNKey) []*ModelInfo {
 		return nil
 	}
 	return buildConfigModels(entry.Models, constant.CodeBuddyCN, "openai")
+}
+
+func buildDeepSeekWebConfigModels(entry *config.DeepSeekWebKey) []*ModelInfo {
+	if entry == nil {
+		return nil
+	}
+	return buildConfigModels(entry.Models, constant.DeepSeekWeb, "openai")
+}
+
+func (s *Service) resolveConfigDeepSeekWebKey(auth *coreauth.Auth) *config.DeepSeekWebKey {
+	if s == nil || s.cfg == nil {
+		return nil
+	}
+	return matchCodeBuddyCNConfigKey(auth, s.cfg.DeepSeekWebKey)
 }
 
 func (s *Service) resolveConfigCodeBuddyCNKey(auth *coreauth.Auth) *config.CodeBuddyCNKey {
