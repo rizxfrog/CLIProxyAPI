@@ -22,6 +22,8 @@ type ConfigSynthesizer struct{}
 // https://copilot.tencent.com/v2/chat/completions.
 const codeBuddyCNDefaultBaseURL = "https://copilot.tencent.com/v2"
 
+const deepSeekWebDefaultBaseURL = "https://chat.deepseek.com"
+
 // NewConfigSynthesizer creates a new ConfigSynthesizer instance.
 func NewConfigSynthesizer() *ConfigSynthesizer {
 	return &ConfigSynthesizer{}
@@ -60,6 +62,8 @@ func (s *ConfigSynthesizer) Synthesize(ctx *SynthesisContext) ([]*coreauth.Auth,
 	out = append(out, s.synthesizeXAIKeys(ctx)...)
 	// CodeBuddy CN API Keys
 	out = append(out, s.synthesizeCodeBuddyCNKeys(ctx)...)
+	// DeepSeek Web userTokens
+	out = append(out, s.synthesizeDeepSeekWebKeys(ctx)...)
 	// OpenAI-compat
 	out = append(out, s.synthesizeOpenAICompat(ctx)...)
 	// Vertex-compat
@@ -266,6 +270,57 @@ func (s *ConfigSynthesizer) synthesizeCodeBuddyCNKeys(ctx *SynthesisContext) []*
 			Metadata:   metadata,
 			CreatedAt:  now,
 			UpdatedAt:  now,
+		}
+		ApplyAuthExcludedModelsMeta(a, cfg, entry.ExcludedModels, "apikey")
+		if len(a.Metadata) == 0 {
+			a.Metadata = nil
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
+// synthesizeDeepSeekWebKeys creates Auth entries for DeepSeek browser userTokens.
+func (s *ConfigSynthesizer) synthesizeDeepSeekWebKeys(ctx *SynthesisContext) []*coreauth.Auth {
+	cfg := ctx.Config
+	now := ctx.Now
+	idGen := ctx.IDGenerator
+
+	out := make([]*coreauth.Auth, 0, len(cfg.DeepSeekWebKey))
+	for i := range cfg.DeepSeekWebKey {
+		entry := cfg.DeepSeekWebKey[i]
+		key := strings.TrimSpace(entry.APIKey)
+		if key == "" {
+			continue
+		}
+		baseURL := strings.TrimSpace(entry.BaseURL)
+		if baseURL == "" {
+			baseURL = deepSeekWebDefaultBaseURL
+		}
+		prefix := strings.TrimSpace(entry.Prefix)
+		id, token := idGen.Next("deepseek-web:apikey", key, baseURL)
+		attrs := map[string]string{
+			"source":       fmt.Sprintf("config:deepseek-web[%s]", token),
+			"api_key":      key,
+			"base_url":     baseURL,
+			"config_index": strconv.Itoa(i),
+		}
+		metadata := map[string]any{}
+		if entry.DisableCooling != nil {
+			metadata["disable_cooling"] = *entry.DisableCooling
+		}
+		if entry.Priority != 0 {
+			attrs["priority"] = strconv.Itoa(entry.Priority)
+		}
+		addWeightToAttrs(entry.Weight, attrs)
+		if hash := diff.ComputeCodeBuddyCNModelsHash(entry.Models); hash != "" {
+			attrs["models_hash"] = hash
+		}
+		addConfigHeadersToAttrs(entry.Headers, attrs)
+		a := &coreauth.Auth{
+			ID: id, Provider: constant.DeepSeekWeb, Label: "deepseek-web-usertoken",
+			Prefix: prefix, Status: coreauth.StatusActive, ProxyURL: strings.TrimSpace(entry.ProxyURL),
+			Attributes: attrs, Metadata: metadata, CreatedAt: now, UpdatedAt: now,
 		}
 		ApplyAuthExcludedModelsMeta(a, cfg, entry.ExcludedModels, "apikey")
 		if len(a.Metadata) == 0 {

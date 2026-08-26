@@ -195,15 +195,29 @@ func (cfg *Config) SanitizeXAIKeys() {
 }
 
 // SanitizeCodeBuddyCNKeys normalizes CodeBuddy CN (Tencent) credentials.
-// Entries missing an API key are dropped; headers and excluded models are normalized.
 func (cfg *Config) SanitizeCodeBuddyCNKeys() {
-	if cfg == nil || len(cfg.CodeBuddyCNKey) == 0 {
+	if cfg == nil {
 		return
 	}
-	out := cfg.CodeBuddyCNKey[:0]
-	seen := make(map[string]struct{}, len(cfg.CodeBuddyCNKey))
-	for i := range cfg.CodeBuddyCNKey {
-		entry := &cfg.CodeBuddyCNKey[i]
+	cfg.CodeBuddyCNKey = sanitizeCodeBuddyStyleKeyEntries(cfg.CodeBuddyCNKey)
+}
+
+// SanitizeDeepSeekWebKeys normalizes DeepSeek Web userToken credentials.
+func (cfg *Config) SanitizeDeepSeekWebKeys() {
+	if cfg == nil {
+		return
+	}
+	cfg.DeepSeekWebKey = sanitizeCodeBuddyStyleKeyEntries(cfg.DeepSeekWebKey)
+}
+
+func sanitizeCodeBuddyStyleKeyEntries(entries []CodeBuddyCNKey) []CodeBuddyCNKey {
+	if len(entries) == 0 {
+		return entries
+	}
+	out := entries[:0]
+	seen := make(map[string]struct{}, len(entries))
+	for i := range entries {
+		entry := &entries[i]
 		entry.APIKey = strings.TrimSpace(entry.APIKey)
 		entry.Prefix = normalizeModelPrefix(entry.Prefix)
 		entry.BaseURL = strings.TrimSpace(entry.BaseURL)
@@ -220,7 +234,7 @@ func (cfg *Config) SanitizeCodeBuddyCNKeys() {
 		seen[uniqueKey] = struct{}{}
 		out = append(out, *entry)
 	}
-	cfg.CodeBuddyCNKey = out
+	return out
 }
 
 func sanitizeCodexKeyEntries(entries []CodexKey) []CodexKey {
