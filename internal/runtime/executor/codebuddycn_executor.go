@@ -218,9 +218,13 @@ func applyCodeBuddyCNOutgoingTransforms(ctx context.Context, auth *cliproxyauth.
 	return body
 }
 
-// applyCodeBuddyCNReasoning maps reasoning_effort to reasoning_summary.
-// "none"/"off" drops the field; any other explicit value enables
-// reasoning_summary:"auto"; absent reasoning_effort leaves the request untouched.
+// applyCodeBuddyCNReasoning mirrors the official CodeBuddy Code CLI's
+// reasoning parameters. The CLI keeps reasoning_effort as a string and, when a
+// non-empty effort is present, additionally sets reasoning_summary:"auto" so the
+// gateway surfaces the model's reasoning (see injectReasoningSummaryIfNeeded in
+// the CLI bundle). "none"/"off" drop the field entirely; absent reasoning_effort
+// leaves the request untouched. The gateway has no "none" value, so it is never
+// forwarded.
 func applyCodeBuddyCNReasoning(body []byte) []byte {
 	if !gjson.GetBytes(body, "reasoning_effort").Exists() {
 		return body
@@ -231,7 +235,6 @@ func applyCodeBuddyCNReasoning(body []byte) []byte {
 		body, _ = sjson.DeleteBytes(body, "reasoning_effort")
 		body, _ = sjson.DeleteBytes(body, "reasoning_summary")
 	default:
-		body, _ = sjson.DeleteBytes(body, "reasoning_effort")
 		body, _ = sjson.SetBytes(body, "reasoning_summary", "auto")
 	}
 	return body
