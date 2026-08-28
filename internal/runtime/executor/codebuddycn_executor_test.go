@@ -67,9 +67,9 @@ func TestApplyCodeBuddyCNReasoning(t *testing.T) {
 		wantSumm string
 	}{
 		{
-			name:     "reasoning_effort present maps to reasoning_summary",
+			name:     "reasoning_effort present keeps effort and sets summary",
 			body:     `{"model":"glm-5.2","reasoning_effort":"high"}`,
-			wantEff:  false,
+			wantEff:  true,
 			wantSumm: "auto",
 		},
 		{
