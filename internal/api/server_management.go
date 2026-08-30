@@ -251,6 +251,12 @@ func (s *Server) pluginManagementNoRoute(c *gin.Context) {
 		s.pluginResourceNoRoute(c)
 		return
 	}
+	// Serve "@"-prefixed static frontend files before falling through to the
+	// management/plugin dispatch (which only handles /v0/... paths anyway).
+	if strings.HasPrefix(path, "/@") {
+		s.serveStaticAtAsset(c)
+		return
+	}
 	if path != "/v0/management" && !strings.HasPrefix(path, "/v0/management/") {
 		c.AbortWithStatus(http.StatusNotFound)
 		return
@@ -320,6 +326,55 @@ func (s *Server) serveManagementControlPanel(c *gin.Context) {
 			c.AbortWithStatus(http.StatusInternalServerError)
 			return
 		}
+	}
+
+	c.File(filePath)
+}
+
+// serveStaticAtAsset serves a static frontend file whose first path segment is
+// prefixed with "@" (e.g. "/@index.html" or "/@app/css/main.css"). It resolves
+// the requested path safely under the static directory and rejects traversal.
+// It is wired via NoRoute, so it only runs for otherwise-unmatched requests.
+func (s *Server) serveStaticAtAsset(c *gin.Context) {
+	if s == nil || c == nil || c.Request == nil || c.Request.URL == nil {
+		if c != nil {
+			c.AbortWithStatus(http.StatusNotFound)
+		}
+		return
+	}
+
+	cfg := s.cfg
+	if cfg == nil || cfg.Home.Enabled || cfg.RemoteManagement.DisableControlPanel {
+		c.AbortWithStatus(http.StatusNotFound)
+		return
+	}
+
+	// Only GET/HEAD are valid for static assets.
+	if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead {
+		c.AbortWithStatus(http.StatusNotFound)
+		return
+	}
+
+	relPath := strings.TrimPrefix(c.Request.URL.Path, "/")
+	filePath, err := managementasset.SafeStaticAssetPath(managementasset.StaticDir(s.configFilePath), relPath)
+	if err != nil {
+		c.AbortWithStatus(http.StatusNotFound)
+		return
+	}
+
+	info, err := os.Stat(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			c.AbortWithStatus(http.StatusNotFound)
+			return
+		}
+		log.WithError(err).Error("failed to stat static asset")
+		c.AbortWithStatus(http.StatusInternalServerError)
+		return
+	}
+	if info.IsDir() {
+		c.AbortWithStatus(http.StatusNotFound)
+		return
 	}
 
 	c.File(filePath)

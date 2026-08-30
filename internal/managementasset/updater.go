@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -195,6 +196,63 @@ func FilePath(configFilePath string) string {
 		return ""
 	}
 	return filepath.Join(dir, ManagementFileName)
+}
+
+// SafeStaticAssetPath resolves a request path (e.g. "@index.html" or
+// "@app/css/main.css") to an absolute filesystem path under staticDir. It only
+// allows paths whose first path segment is prefixed with "@" and rejects any
+// traversal outside staticDir (path traversal protection).
+func SafeStaticAssetPath(staticDir, relPath string) (string, error) {
+	staticDir = strings.TrimSpace(staticDir)
+	if staticDir == "" {
+		return "", errors.New("static directory is empty")
+	}
+
+	relPath = strings.TrimSpace(relPath)
+	relPath = strings.TrimLeft(relPath, "/")
+	if relPath == "" {
+		return "", errors.New("asset path is empty")
+	}
+	// Backslashes are not valid URL path separators and are rejected outright to
+	// avoid any cross-platform separator confusion.
+	if strings.ContainsRune(relPath, '\\') {
+		return "", errors.New("asset path contains invalid characters")
+	}
+
+	cleaned := path.Clean(relPath)
+	if cleaned == "." || cleaned == "" {
+		return "", errors.New("asset path is empty")
+	}
+	if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return "", errors.New("asset path escapes static directory")
+	}
+
+	first := cleaned
+	if idx := strings.IndexByte(first, '/'); idx >= 0 {
+		first = first[:idx]
+	}
+	if !strings.HasPrefix(first, "@") {
+		return "", errors.New("asset path must start with @")
+	}
+
+	absDir, err := filepath.Abs(staticDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve static directory: %w", err)
+	}
+	absDir = filepath.Clean(absDir)
+
+	full := filepath.Join(absDir, filepath.FromSlash(cleaned))
+
+	// Defense in depth: confirm the result stays within absDir.
+	rel, err := filepath.Rel(absDir, full)
+	if err != nil {
+		return "", fmt.Errorf("resolve asset path: %w", err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || filepath.IsAbs(rel) {
+		return "", errors.New("asset path escapes static directory")
+	}
+
+	return full, nil
 }
 
 // EnsureLatestManagementHTML checks the latest management.html asset and updates the local copy when needed.
