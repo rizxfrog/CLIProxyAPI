@@ -3,10 +3,69 @@ package managementasset
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 )
+
+func TestSafeStaticAssetPath(t *testing.T) {
+	dir := t.TempDir()
+
+	valid := []string{
+		"@index.html",
+		"@assets/css/app.css",
+		"@foo/bar/baz.js",
+	}
+	for _, p := range valid {
+		got, err := SafeStaticAssetPath(dir, p)
+		if err != nil {
+			t.Fatalf("SafeStaticAssetPath(%q) error = %v", p, err)
+		}
+		// The "@" prefix is part of the on-disk filename and is preserved.
+		want := filepath.Join(dir, filepath.FromSlash(p))
+		if got != want {
+			t.Fatalf("SafeStaticAssetPath(%q) = %q, want %q", p, got, want)
+		}
+	}
+
+	invalid := []string{
+		"",
+		"index.html",        // no @ prefix
+		"assets/index.html", // no @ prefix
+		"../@index.html",    // traversal before @
+		"@a/../../secret",   // traversal resolves away the @ segment
+		"@a\\..\\secret",    // backslash traversal
+	}
+	for _, p := range invalid {
+		if _, err := SafeStaticAssetPath(dir, p); err == nil {
+			t.Fatalf("SafeStaticAssetPath(%q) expected error, got nil", p)
+		}
+	}
+
+	// Empty dir must error.
+	if _, err := SafeStaticAssetPath("", "@index.html"); err == nil {
+		t.Fatalf("SafeStaticAssetPath with empty dir expected error, got nil")
+	}
+}
+
+func TestSafeStaticAssetPathRejectsTraversal(t *testing.T) {
+	dir := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(outside, []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_ = outside
+
+	// Attempt to escape the static dir via a symlink-free relative traversal.
+	for _, p := range []string{"../@index.html", "@x/../../secret.txt"} {
+		got, err := SafeStaticAssetPath(dir, p)
+		if err == nil {
+			t.Fatalf("SafeStaticAssetPath(%q) = %q, want error", p, got)
+		}
+	}
+}
 
 func TestFetchLatestAssetSetsGitHubAuthorization(t *testing.T) {
 	t.Setenv("GITHUB_TOKEN", "asset-token")

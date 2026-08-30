@@ -1714,6 +1714,83 @@ func TestHomeEnabledHidesManagementEndpointsAndControlPanel(t *testing.T) {
 	})
 }
 
+func TestServeStaticAtAsset(t *testing.T) {
+	t.Setenv("MANAGEMENT_PASSWORD", "test-management-key")
+	staticDir := t.TempDir()
+	t.Setenv("MANAGEMENT_STATIC_PATH", staticDir)
+
+	// On-disk files keep the "@" prefix as part of the filename.
+	if err := os.WriteFile(filepath.Join(staticDir, "@index.html"), []byte("<html>hello</html>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(staticDir, "@assets", "css"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(staticDir, "@assets", "css", "app.css"), []byte("body{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// A secret file outside the static dir used to verify traversal protection.
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(outside, []byte("top-secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	server := newTestServer(t)
+
+	t.Run("serves @-prefixed file", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/@index.html", nil)
+		rr := httptest.NewRecorder()
+		server.engine.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+		}
+		if !strings.Contains(rr.Body.String(), "hello") {
+			t.Fatalf("body missing content: %s", rr.Body.String())
+		}
+	})
+
+	t.Run("serves nested @-prefixed path", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/@assets/css/app.css", nil)
+		rr := httptest.NewRecorder()
+		server.engine.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+		}
+		if !strings.Contains(rr.Body.String(), "body{}") {
+			t.Fatalf("body missing content: %s", rr.Body.String())
+		}
+	})
+
+	t.Run("rejects non-@ path", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/index.html", nil)
+		rr := httptest.NewRecorder()
+		server.engine.ServeHTTP(rr, req)
+		if rr.Code != http.StatusNotFound {
+			t.Fatalf("status = %d, want %d", rr.Code, http.StatusNotFound)
+		}
+	})
+
+	t.Run("rejects path traversal", func(t *testing.T) {
+		for _, p := range []string{
+			"/@../secret.txt",
+			"/@assets/../../secret.txt",
+			"/@assets/%2e%2e/%2e%2e/secret.txt",
+			"/@assets\\..\\..\\secret.txt",
+		} {
+			req := httptest.NewRequest(http.MethodGet, p, nil)
+			rr := httptest.NewRecorder()
+			server.engine.ServeHTTP(rr, req)
+			if rr.Code == http.StatusOK {
+				t.Fatalf("traversal path %q served successfully (body=%s)", p, rr.Body.String())
+			}
+			if strings.Contains(rr.Body.String(), "top-secret") {
+				t.Fatalf("traversal path %q leaked secret file", p)
+			}
+		}
+	})
+}
+
 func TestExampleAPIKeySafeModeShowsWarningAndKeepsManagement(t *testing.T) {
 	t.Setenv("MANAGEMENT_PASSWORD", "test-management-key")
 	staticDir := t.TempDir()
