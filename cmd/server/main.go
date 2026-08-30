@@ -675,6 +675,7 @@ func main() {
 		}
 		if localModel && (!tuiMode || standalone) {
 			log.Info("Local model mode: using embedded model catalogs, remote model updates disabled")
+			managementasset.SetLocalModel(true)
 		}
 		if tuiMode {
 			if standalone {

@@ -45,7 +45,15 @@ var (
 	schedulerOnce       sync.Once
 	schedulerConfigPath atomic.Value
 	sfGroup             singleflight.Group
+	localModelOnly      atomic.Bool
 )
+
+// SetLocalModel disables remote management-panel fetches when true (the
+// --local-model flag). This prevents the frontend asset from being downloaded
+// on startup and on first access while still serving any locally present copy.
+func SetLocalModel(enabled bool) {
+	localModelOnly.Store(enabled)
+}
 
 // SetCurrentConfig stores the latest configuration snapshot for management asset decisions.
 func SetCurrentConfig(cfg *config.Config) {
@@ -107,6 +115,9 @@ func runAutoUpdater(ctx context.Context) {
 func autoUpdateSkipReason(cfg *config.Config) (string, bool) {
 	if cfg == nil {
 		return "config not yet available", true
+	}
+	if localModelOnly.Load() {
+		return "local model mode enabled", true
 	}
 	if cfg.Home.Enabled {
 		return "cluster mode enabled", true
@@ -199,6 +210,17 @@ func EnsureLatestManagementHTML(ctx context.Context, staticDir string, proxyURL 
 		return false
 	}
 	localPath := filepath.Join(staticDir, managementAssetName)
+
+	if localModelOnly.Load() {
+		// In local model mode we must not reach out to GitHub (or the fallback
+		// page) for the frontend asset; only serve whatever is already on disk.
+		if _, errStat := os.Stat(localPath); errStat == nil {
+			log.Debug("management asset sync skipped: local model mode, serving existing asset")
+			return true
+		}
+		log.Debug("management asset sync skipped: local model mode, no local asset present")
+		return false
+	}
 
 	_, _, _ = sfGroup.Do(localPath, func() (interface{}, error) {
 		lastUpdateCheckMu.Lock()

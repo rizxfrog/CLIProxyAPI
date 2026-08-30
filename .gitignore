@@ -71,3 +71,5 @@ docker-compose.override.yml
 
 # Playwright CLI debug artifacts
 /.playwright-cli/
+/.codegraph/
+/data/
