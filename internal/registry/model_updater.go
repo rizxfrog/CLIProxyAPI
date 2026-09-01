@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -71,21 +72,58 @@ func init() {
 	}
 }
 
-// StartModelsUpdater starts a background updater that fetches models
-// immediately on startup and then refreshes the model catalog every 3 hours.
+// StartModelsUpdater loads the model catalog from MODELS_FILE when configured.
+// Otherwise it starts a background updater using MODELS_URL or the built-in
+// fallback URLs, fetching immediately and then every 3 hours. MODELS_FILE takes
+// precedence over MODELS_URL and is loaded once during startup.
 // Safe to call multiple times; only one updater will run.
 func StartModelsUpdater(ctx context.Context) {
 	updaterOnce.Do(func() {
-		go runModelsUpdater(ctx)
+		modelsFile, urls := configuredModelsSource()
+		if modelsFile != "" {
+			if err := loadModelsFromFile(modelsFile); err != nil {
+				log.Warnf("startup model file load failed, keeping embedded catalog: %v", err)
+				return
+			}
+			log.Infof("startup model catalog loaded from %s", modelsFile)
+			return
+		}
+		go runModelsUpdater(ctx, urls)
 	})
 }
 
-func runModelsUpdater(ctx context.Context) {
-	tryStartupRefresh(ctx)
-	periodicRefresh(ctx)
+func configuredModelsSource() (string, []string) {
+	if modelsFile := strings.TrimSpace(os.Getenv("MODELS_FILE")); modelsFile != "" {
+		return modelsFile, nil
+	}
+	if modelsURL := strings.TrimSpace(os.Getenv("MODELS_URL")); modelsURL != "" {
+		return "", []string{modelsURL}
+	}
+	return "", append([]string(nil), modelsURLs...)
 }
 
-func periodicRefresh(ctx context.Context) {
+func loadModelsFromFile(path string) error {
+	data, errRead := os.ReadFile(path)
+	if errRead != nil {
+		return fmt.Errorf("read models file %s: %w", path, errRead)
+	}
+	oldData := getModels()
+	if errLoad := loadModelsFromBytes(data, path); errLoad != nil {
+		return errLoad
+	}
+	changed := detectChangedProviders(oldData, getModels())
+	if len(changed) > 0 {
+		notifyModelRefresh(changed)
+	}
+	return nil
+}
+
+func runModelsUpdater(ctx context.Context, urls []string) {
+	tryStartupRefresh(ctx, urls)
+	periodicRefresh(ctx, urls)
+}
+
+func periodicRefresh(ctx context.Context, urls []string) {
 	ticker := time.NewTicker(modelsRefreshInterval)
 	defer ticker.Stop()
 	log.Infof("periodic model refresh started (interval=%s)", modelsRefreshInterval)
@@ -94,28 +132,28 @@ func periodicRefresh(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			tryPeriodicRefresh(ctx)
+			tryPeriodicRefresh(ctx, urls)
 		}
 	}
 }
 
 // tryPeriodicRefresh fetches models from remote, compares with the current
 // catalog, and notifies the registered callback if any provider changed.
-func tryPeriodicRefresh(ctx context.Context) {
-	tryRefreshModels(ctx, "periodic model refresh")
+func tryPeriodicRefresh(ctx context.Context, urls []string) {
+	tryRefreshModels(ctx, urls, "periodic model refresh")
 }
 
 // tryStartupRefresh fetches models from remote in the background during
 // process startup. It uses the same change detection as periodic refresh so
 // existing auth registrations can be updated after the callback is registered.
-func tryStartupRefresh(ctx context.Context) {
-	tryRefreshModels(ctx, "startup model refresh")
+func tryStartupRefresh(ctx context.Context, urls []string) {
+	tryRefreshModels(ctx, urls, "startup model refresh")
 }
 
-func tryRefreshModels(ctx context.Context, label string) {
+func tryRefreshModels(ctx context.Context, urls []string, label string) {
 	oldData := getModels()
 
-	parsed, url := fetchModelsFromRemote(ctx)
+	parsed, url := fetchModelsFromRemote(ctx, urls)
 	if parsed == nil {
 		log.Warnf("%s: fetch failed from all URLs, keeping current data", label)
 		return
@@ -140,9 +178,9 @@ func tryRefreshModels(ctx context.Context, label string) {
 
 // fetchModelsFromRemote tries all remote URLs and returns the parsed model catalog
 // along with the URL it was fetched from. Returns (nil, "") if all fetches fail.
-func fetchModelsFromRemote(ctx context.Context) (*staticModelsJSON, string) {
+func fetchModelsFromRemote(ctx context.Context, urls []string) (*staticModelsJSON, string) {
 	client := &http.Client{Timeout: modelsFetchTimeout}
-	for _, url := range modelsURLs {
+	for _, url := range urls {
 		reqCtx, cancel := context.WithTimeout(ctx, modelsFetchTimeout)
 		req, err := http.NewRequestWithContext(reqCtx, "GET", url, nil)
 		if err != nil {
@@ -215,6 +253,8 @@ func detectChangedProviders(oldData, newData *staticModelsJSON) []string {
 		{"codex", oldData.CodexPro, newData.CodexPro},
 		{"kimi", oldData.Kimi, newData.Kimi},
 		{"antigravity", oldData.Antigravity, newData.Antigravity},
+		{"codebuddy-cn", oldData.CodeBuddyCN, newData.CodeBuddyCN},
+		{"deepseek-web", oldData.DeepSeekWeb, newData.DeepSeekWeb},
 		{"xai", oldData.XAI, newData.XAI},
 	}
 
