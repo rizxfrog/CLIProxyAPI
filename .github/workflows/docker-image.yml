@@ -5,6 +5,9 @@ on:
     tags:
       - v*
 
+permissions:
+  contents: write
+
 env:
   APP_NAME: CLIProxyAPI
   DOCKERHUB_REPO: rizxfrog/cli-proxy-api
@@ -47,6 +50,20 @@ jobs:
           tags: |
             ${{ env.DOCKERHUB_REPO }}:latest-amd64
             ${{ env.DOCKERHUB_REPO }}:${{ env.VERSION }}-amd64
+      - name: Export Docker image
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          docker pull --platform linux/amd64 "${DOCKERHUB_REPO}:${VERSION}-amd64"
+          docker save "${DOCKERHUB_REPO}:${VERSION}-amd64" \
+            | gzip -9 > "dist/CLIProxyAPI_${VERSION}_docker_linux_amd64.tar.gz"
+      - name: Upload Docker archive artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-linux-amd64
+          path: dist/CLIProxyAPI_*_docker_linux_amd64.tar.gz
+          if-no-files-found: error
+          retention-days: 1
 
   docker_arm64:
     runs-on: ubuntu-24.04-arm
@@ -85,6 +102,20 @@ jobs:
           tags: |
             ${{ env.DOCKERHUB_REPO }}:latest-arm64
             ${{ env.DOCKERHUB_REPO }}:${{ env.VERSION }}-arm64
+      - name: Export Docker image
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          docker pull --platform linux/arm64 "${DOCKERHUB_REPO}:${VERSION}-arm64"
+          docker save "${DOCKERHUB_REPO}:${VERSION}-arm64" \
+            | gzip -9 > "dist/CLIProxyAPI_${VERSION}_docker_linux_arm64.tar.gz"
+      - name: Upload Docker archive artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-linux-arm64
+          path: dist/CLIProxyAPI_*_docker_linux_arm64.tar.gz
+          if-no-files-found: error
+          retention-days: 1
 
   docker_manifest:
     runs-on: ubuntu-latest
@@ -116,6 +147,37 @@ jobs:
             --tag "${DOCKERHUB_REPO}:${VERSION}" \
             "${DOCKERHUB_REPO}:${VERSION}-amd64" \
             "${DOCKERHUB_REPO}:${VERSION}-arm64"
+      - name: Download Docker archives
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: docker-linux-*
+          merge-multiple: true
+      - name: Upload Docker archives to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd dist
+          shopt -s nullglob
+          archives=(CLIProxyAPI_*_docker_linux_*.tar.gz)
+          if [[ ${#archives[@]} -ne 2 ]]; then
+            echo "Expected two Docker archives, found ${#archives[@]}" >&2
+            exit 1
+          fi
+          sha256sum "${archives[@]}" | sort -k2 > docker-checksums.txt
+
+          for attempt in $(seq 1 12); do
+            if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+              gh release upload "$GITHUB_REF_NAME" "${archives[@]}" docker-checksums.txt --clobber
+              exit 0
+            fi
+            echo "Release not available yet; retrying in 10 seconds (${attempt}/12)"
+            sleep 10
+          done
+
+          echo "Timed out waiting for release $GITHUB_REF_NAME" >&2
+          exit 1
       - name: Cleanup temporary tags
         continue-on-error: true
         env:
