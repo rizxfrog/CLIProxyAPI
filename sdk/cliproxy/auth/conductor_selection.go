@@ -842,11 +842,41 @@ func (m *Manager) authSupportsRouteModel(registryRef *registry.ModelRegistry, au
 	if routeKey == "" {
 		return true
 	}
+	// force-model-prefix is an access rule: only the prefixed alias form
+	// "<prefix>/<name>" is callable. The registry still holds the native name so
+	// capability lookups (thinking, limits, ...) resolve, so the restriction is
+	// enforced here rather than by omitting registrations.
+	if m.forceModelPrefixEnabled() {
+		if !authAllowsPrefixedCall(auth, routeKey) {
+			return false
+		}
+	}
 	if registryRef.ClientSupportsModel(auth.ID, routeKey) {
 		return true
 	}
 	selectionKey := m.selectionModelKeyForAuth(auth, routeModel)
 	return selectionKey != "" && selectionKey != routeKey && registryRef.ClientSupportsModel(auth.ID, selectionKey)
+}
+
+// forceModelPrefixEnabled reports whether the runtime configuration requires
+// clients to call models through their prefixed alias form.
+func (m *Manager) forceModelPrefixEnabled() bool {
+	if m == nil {
+		return false
+	}
+	cfg := m.runtimeConfigSnapshot()
+	return cfg != nil && cfg.ForceModelPrefix
+}
+
+// authAllowsPrefixedCall reports whether routeKey is the prefixed alias form
+// for this auth. A credential without a prefix has no alias at all, so it is
+// unreachable while prefixing is forced.
+func authAllowsPrefixedCall(auth *Auth, routeKey string) bool {
+	prefix := strings.TrimSpace(auth.Prefix)
+	if prefix == "" {
+		return false
+	}
+	return strings.HasPrefix(routeKey, prefix+"/")
 }
 
 func (m *Manager) normalizeProviders(providers []string) []string {
@@ -1473,6 +1503,13 @@ func shouldRetrySchedulerPick(err error) bool {
 func (m *Manager) routeAwareSelectionRequired(auth *Auth, routeModel string) bool {
 	if auth == nil || strings.TrimSpace(routeModel) == "" {
 		return false
+	}
+	// force-model-prefix is an access rule enforced by authSupportsRouteModel,
+	// which only runs on the route-aware legacy path. Fall back to it whenever a
+	// candidate could be rejected by that rule, otherwise the scheduler fast path
+	// would admit calls the configuration forbids.
+	if m.forceModelPrefixEnabled() {
+		return true
 	}
 	return m.selectionModelKeyForAuth(auth, routeModel) != canonicalModelKey(routeModel)
 }
