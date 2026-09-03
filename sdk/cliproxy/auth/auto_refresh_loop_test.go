@@ -32,7 +32,7 @@ func setRefreshLeadFactory(t *testing.T, provider string, factory func() *time.D
 	})
 }
 
-func TestNextRefreshCheckAt_DisabledUnschedule(t *testing.T) {
+func TestNextRefreshCheckAt_DisabledAuthStillSchedulesRefresh(t *testing.T) {
 	now := time.Date(2026, 4, 12, 0, 0, 0, 0, time.UTC)
 	expiry := now.Add(time.Hour)
 	lead := 10 * time.Minute
@@ -54,11 +54,37 @@ func TestNextRefreshCheckAt_DisabledUnschedule(t *testing.T) {
 
 	got, ok := nextRefreshCheckAt(now, auth, 15*time.Minute)
 	if !ok {
-		t.Fatalf("nextRefreshCheckAt() ok = false, want true")
+		t.Fatal("disabled OAuth auth should remain scheduled for token refresh")
 	}
 	want := expiry.Add(-lead)
 	if !got.Equal(want) {
 		t.Fatalf("nextRefreshCheckAt() = %s, want %s", got, want)
+	}
+}
+
+func TestManagerShouldRefresh_DisabledOAuthAuthStillRefreshes(t *testing.T) {
+	now := time.Date(2026, 4, 12, 0, 0, 0, 0, time.UTC)
+	expiry := now.Add(5 * time.Minute)
+	lead := 10 * time.Minute
+	setRefreshLeadFactory(t, "disabled-refresh", func() *time.Duration {
+		d := lead
+		return &d
+	})
+
+	auth := &Auth{
+		ID:       "disabled-refresh-auth",
+		Provider: "disabled-refresh",
+		Disabled: true,
+		Status:   StatusDisabled,
+		Metadata: map[string]any{
+			"auth_kind": "oauth",
+			"expired":   expiry.Format(time.RFC3339),
+		},
+	}
+	manager := NewManager(nil, &RoundRobinSelector{}, nil)
+
+	if !manager.shouldRefresh(auth, now) {
+		t.Fatal("disabled OAuth auth should still be eligible for token refresh")
 	}
 }
 
