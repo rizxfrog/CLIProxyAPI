@@ -227,11 +227,11 @@ func (s *Service) registerModelsForAuthWithCache(ctx context.Context, a *coreaut
 				}
 				if len(ms) > 0 {
 					ms = s.appendPluginModels(providerKey, ms)
-					s.registerResolvedModelsForAuth(a, providerKey, applyModelPrefixes(ms, a.Prefix, s.cfg.ForceModelPrefix))
+					s.registerResolvedModelsForAuth(a, providerKey, applyModelPrefixes(ms, a.Prefix))
 				} else {
 					ms = s.appendPluginModels(providerKey, nil)
 					if len(ms) > 0 {
-						s.registerResolvedModelsForAuth(a, providerKey, applyModelPrefixes(ms, a.Prefix, s.cfg.ForceModelPrefix))
+						s.registerResolvedModelsForAuth(a, providerKey, applyModelPrefixes(ms, a.Prefix))
 					} else {
 						GlobalModelRegistry().UnregisterClient(a.ID)
 					}
@@ -249,11 +249,11 @@ func (s *Service) registerModelsForAuthWithCache(ctx context.Context, a *coreaut
 				ms := cached.models
 				if len(ms) > 0 {
 					ms = s.appendPluginModels(providerKey, ms)
-					s.registerResolvedModelsForAuth(a, providerKey, applyModelPrefixes(ms, a.Prefix, s.cfg.ForceModelPrefix))
+					s.registerResolvedModelsForAuth(a, providerKey, applyModelPrefixes(ms, a.Prefix))
 				} else {
 					ms = s.appendPluginModels(providerKey, nil)
 					if len(ms) > 0 {
-						s.registerResolvedModelsForAuth(a, providerKey, applyModelPrefixes(ms, a.Prefix, s.cfg.ForceModelPrefix))
+						s.registerResolvedModelsForAuth(a, providerKey, applyModelPrefixes(ms, a.Prefix))
 					} else {
 						GlobalModelRegistry().UnregisterClient(a.ID)
 					}
@@ -272,7 +272,7 @@ func (s *Service) registerModelsForAuthWithCache(ctx context.Context, a *coreaut
 			if isCompatAuth {
 				models = s.appendPluginModels(providerKey, nil)
 				if len(models) > 0 {
-					s.registerResolvedModelsForAuth(a, providerKey, applyModelPrefixes(models, a.Prefix, s.cfg != nil && s.cfg.ForceModelPrefix))
+					s.registerResolvedModelsForAuth(a, providerKey, applyModelPrefixes(models, a.Prefix))
 				} else {
 					// No matching provider found or models removed entirely; drop any prior registration.
 					GlobalModelRegistry().UnregisterClient(a.ID)
@@ -294,7 +294,7 @@ func (s *Service) registerModelsForAuthWithCache(ctx context.Context, a *coreaut
 	}
 	models = s.appendPluginModels(key, models)
 	if len(models) > 0 {
-		s.registerResolvedModelsForAuth(a, key, applyModelPrefixes(models, a.Prefix, s.cfg != nil && s.cfg.ForceModelPrefix))
+		s.registerResolvedModelsForAuth(a, key, applyModelPrefixes(models, a.Prefix))
 		return
 	}
 
@@ -595,7 +595,13 @@ func applyExcludedModels(models []*ModelInfo, excluded []string) []*ModelInfo {
 	return filtered
 }
 
-func applyModelPrefixes(models []*ModelInfo, prefix string, forceModelPrefix bool) []*ModelInfo {
+// applyModelPrefixes exposes an alias form for each model in addition to its
+// provider-native name. The alias is "<prefix>/<name>" and is used to target a
+// specific credential. Both the native name and the alias are always
+// registered: the registry is the capability catalog, and restricting which
+// names a client may call is an access decision made by auth selection (see
+// Manager.authSupportsRouteModel), not by omitting registrations here.
+func applyModelPrefixes(models []*ModelInfo, prefix string) []*ModelInfo {
 	trimmedPrefix := strings.TrimSpace(prefix)
 	if trimmedPrefix == "" || len(models) == 0 {
 		return models
@@ -627,9 +633,11 @@ func applyModelPrefixes(models []*ModelInfo, prefix string, forceModelPrefix boo
 		if baseID == "" {
 			continue
 		}
-		if !forceModelPrefix || trimmedPrefix == baseID {
-			addModel(model)
-		}
+		// The native name is the canonical capability definition and stays
+		// registered so capability lookups (thinking, limits, ...) resolve even
+		// when the client is required to call the alias.
+		addModel(model)
+		// The alias shares the exact same capability definition.
 		clone := *model
 		clone.ID = trimmedPrefix + "/" + baseID
 		addModel(&clone)
