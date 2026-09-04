@@ -32,6 +32,7 @@ type staticModelsJSON struct {
 	CodeBuddyCN []*ModelInfo `json:"codebuddy-cn"`
 	DeepSeekWeb []*ModelInfo `json:"deepseek-web"`
 	XAI         []*ModelInfo `json:"xai"`
+	Trae        []*ModelInfo `json:"trae"`
 }
 
 // GetClaudeModels returns the standard Claude model definitions.
@@ -122,6 +123,11 @@ func AntigravityWebSearchModelFor(modelID string) string {
 // GetXAIModels returns the standard xAI Grok model definitions.
 func GetXAIModels() []*ModelInfo {
 	return WithXAIBuiltins(cloneModelInfos(getModels().XAI))
+}
+
+// GetTraeModels returns the standard TRAE SOLO CN model definitions.
+func GetTraeModels() []*ModelInfo {
+	return cloneModelInfos(getModels().Trae)
 }
 
 // WithCodexBuiltins injects hard-coded Codex-only model definitions that should

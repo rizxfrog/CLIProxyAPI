@@ -21,7 +21,17 @@ type PayloadFilterRule = internalconfig.PayloadFilterRule
 type PayloadModelRule = internalconfig.PayloadModelRule
 
 type GeminiKey = internalconfig.GeminiKey
+
+// TraeKey is the TRAE SOLO CN desktop credential type.
+type TraeKey = internalconfig.TraeKey
+
+// TraeModel is the TRAE SOLO CN model mapping type.
+type TraeModel = internalconfig.TraeModel
+
+// CodexKey is the Codex credential type.
 type CodexKey = internalconfig.CodexKey
+
+// XAIKey is the xAI credential type.
 type XAIKey = internalconfig.XAIKey
 type XAIModel = internalconfig.XAIModel
 type CodeBuddyCNKey = internalconfig.CodeBuddyCNKey
