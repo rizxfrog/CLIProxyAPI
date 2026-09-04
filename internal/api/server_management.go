@@ -184,6 +184,8 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.GET("/kimi-auth-url", s.mgmt.RequestKimiToken)
 		mgmt.GET("/codebuddy-cn-auth-url", s.mgmt.RequestCodeBuddyCNToken)
 		mgmt.GET("/xai-auth-url", s.mgmt.RequestXAIToken)
+		mgmt.GET("/trae-auth-url", s.mgmt.RequestTraeToken)
+		mgmt.POST("/trae-auth-callback", s.mgmt.PostTraeAuthCallback)
 		mgmt.GET("/get-auth-status", s.mgmt.GetAuthStatus)
 		mgmt.DELETE("/oauth-session", s.mgmt.CancelAuthSession)
 	}

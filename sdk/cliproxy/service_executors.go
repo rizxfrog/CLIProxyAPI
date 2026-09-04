@@ -298,6 +298,8 @@ func (s *Service) registerExecutorForAuth(a *coreauth.Auth, forceReplace bool) {
 		s.coreManager.RegisterExecutor(executor.NewCodeBuddyCNExecutor(cfg))
 	case constant.DeepSeekWeb:
 		s.coreManager.RegisterExecutor(executor.NewDeepSeekWebExecutor(cfg))
+	case constant.Trae:
+		s.coreManager.RegisterExecutor(executor.NewTraeExecutor(cfg))
 	case "xai":
 		if !forceReplace {
 			existingExecutor, hasExecutor := s.coreManager.Executor("xai")

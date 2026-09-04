@@ -24,6 +24,14 @@ const codeBuddyCNDefaultBaseURL = "https://copilot.tencent.com/v2"
 
 const deepSeekWebDefaultBaseURL = "https://chat.deepseek.com"
 
+// traeDefaultBaseURL is the TRAE SOLO CN desktop agent gateway used when a
+// trae-api-key entry does not specify its own base-url.
+const traeDefaultBaseURL = "https://trae-api-cn.mchost.guru"
+
+// traeDefaultAPIHost is the ExchangeToken / GetUserInfo host used when a
+// trae-api-key entry does not specify its own api-host.
+const traeDefaultAPIHost = "https://api.trae.com.cn"
+
 // NewConfigSynthesizer creates a new ConfigSynthesizer instance.
 func NewConfigSynthesizer() *ConfigSynthesizer {
 	return &ConfigSynthesizer{}
@@ -64,6 +72,8 @@ func (s *ConfigSynthesizer) Synthesize(ctx *SynthesisContext) ([]*coreauth.Auth,
 	out = append(out, s.synthesizeCodeBuddyCNKeys(ctx)...)
 	// DeepSeek Web userTokens
 	out = append(out, s.synthesizeDeepSeekWebKeys(ctx)...)
+	// TRAE SOLO CN desktop credentials
+	out = append(out, s.synthesizeTraeKeys(ctx)...)
 	// OpenAI-compat
 	out = append(out, s.synthesizeOpenAICompat(ctx)...)
 	// Vertex-compat
@@ -319,6 +329,76 @@ func (s *ConfigSynthesizer) synthesizeDeepSeekWebKeys(ctx *SynthesisContext) []*
 		addConfigHeadersToAttrs(entry.Headers, attrs)
 		a := &coreauth.Auth{
 			ID: id, Provider: constant.DeepSeekWeb, Label: "deepseek-web-usertoken",
+			Prefix: prefix, Status: coreauth.StatusActive, ProxyURL: strings.TrimSpace(entry.ProxyURL),
+			Attributes: attrs, Metadata: metadata, CreatedAt: now, UpdatedAt: now,
+		}
+		ApplyAuthExcludedModelsMeta(a, cfg, entry.ExcludedModels, "apikey")
+		if len(a.Metadata) == 0 {
+			a.Metadata = nil
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
+// synthesizeTraeKeys creates Auth entries for TRAE SOLO CN desktop credentials.
+func (s *ConfigSynthesizer) synthesizeTraeKeys(ctx *SynthesisContext) []*coreauth.Auth {
+	cfg := ctx.Config
+	now := ctx.Now
+	idGen := ctx.IDGenerator
+
+	out := make([]*coreauth.Auth, 0, len(cfg.TraeKey))
+	for i := range cfg.TraeKey {
+		entry := cfg.TraeKey[i]
+		key := strings.TrimSpace(entry.APIKey)
+		if key == "" {
+			continue
+		}
+		baseURL := strings.TrimSpace(entry.BaseURL)
+		if baseURL == "" {
+			baseURL = traeDefaultBaseURL
+		}
+		apiHost := strings.TrimSpace(entry.ApiHost)
+		if apiHost == "" {
+			apiHost = traeDefaultAPIHost
+		}
+		prefix := strings.TrimSpace(entry.Prefix)
+		id, token := idGen.Next("trae:apikey", key, baseURL, apiHost)
+		attrs := map[string]string{
+			"source":       fmt.Sprintf("config:trae[%s]", token),
+			"api_key":      key,
+			"base_url":     baseURL,
+			"config_index": strconv.Itoa(i),
+			"uid":          entry.UID,
+			"machine_id":   entry.MachineID,
+			"device_id":    entry.DeviceID,
+		}
+		metadata := map[string]any{
+			"access_token": key,
+			"api_host":     apiHost,
+		}
+		if strings.TrimSpace(entry.RefreshToken) != "" {
+			metadata["refresh_token"] = entry.RefreshToken
+		}
+		if strings.TrimSpace(entry.UID) != "" {
+			metadata["uid"] = entry.UID
+		}
+		if strings.TrimSpace(entry.MachineID) != "" {
+			metadata["machine_id"] = entry.MachineID
+		}
+		if strings.TrimSpace(entry.DeviceID) != "" {
+			metadata["device_id"] = entry.DeviceID
+		}
+		if entry.DisableCooling != nil {
+			metadata["disable_cooling"] = *entry.DisableCooling
+		}
+		if entry.Priority != 0 {
+			attrs["priority"] = strconv.Itoa(entry.Priority)
+		}
+		addWeightToAttrs(entry.Weight, attrs)
+		addConfigHeadersToAttrs(entry.Headers, attrs)
+		a := &coreauth.Auth{
+			ID: id, Provider: constant.Trae, Label: "trae-solo-cn-apikey",
 			Prefix: prefix, Status: coreauth.StatusActive, ProxyURL: strings.TrimSpace(entry.ProxyURL),
 			Attributes: attrs, Metadata: metadata, CreatedAt: now, UpdatedAt: now,
 		}
