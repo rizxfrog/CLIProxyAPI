@@ -31,6 +31,9 @@ const (
 	// DeepSeekWeb represents the DeepSeek authenticated web-session provider identifier.
 	DeepSeekWeb = "deepseek-web"
 
+	// Trae represents the TRAE SOLO CN desktop client provider identifier.
+	Trae = "trae"
+
 	// Interactions represents the Google Interactions API format identifier.
 	Interactions = "interactions"
 )

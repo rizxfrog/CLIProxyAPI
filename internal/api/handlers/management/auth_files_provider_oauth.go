@@ -19,6 +19,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/auth/codebuddycn"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/auth/codex"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/auth/kimi"
+	traeauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/trae"
 	xaiauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/xai"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/misc"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/pluginhost"
@@ -819,6 +820,127 @@ func watchOAuthSessionCancel(pollCtx context.Context, cancel context.CancelFunc,
 			}
 		}
 	}
+}
+
+// RequestTraeToken starts the TRAE SOLO CN manual-paste login flow. TRAE has
+// no device-code endpoint and forces a 127.0.0.1 auth_callback_url, so remote
+// CLIProxyAPI deployments cannot receive the callback automatically. The Web UI
+// shows the login URL and then submits the full browser callback URL via
+// PostTraeAuthCallback.
+func (h *Handler) RequestTraeToken(c *gin.Context) {
+	client := traeauth.NewClient(h.cfg)
+	loginURL, errBuild := client.BuildLoginURL()
+	if errBuild != nil {
+		log.Errorf("Failed to start TRAE authorization: %v", errBuild)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start TRAE authorization"})
+		return
+	}
+	state := strings.TrimSpace(loginURL.State)
+	if errState := ValidateOAuthState(state); errState != nil {
+		log.WithError(errState).Error("TRAE returned invalid login trace id")
+		c.JSON(http.StatusBadGateway, gin.H{"error": "invalid login trace id"})
+		return
+	}
+	RegisterOAuthSession(state, "trae")
+	c.JSON(http.StatusOK, gin.H{
+		"status":  "ok",
+		"url":     loginURL.URL,
+		"state":   state,
+		"flow":    "manual",
+		"machine": loginURL.MachineID,
+		"device":  loginURL.DeviceID,
+	})
+}
+
+// PostTraeAuthCallback receives the full TRAE callback URL pasted by the user,
+// exchanges it for tokens, and persists the credential record.
+func (h *Handler) PostTraeAuthCallback(c *gin.Context) {
+	var req struct {
+		State       string `json:"state"`
+		RedirectURL string `json:"redirect_url"`
+		MachineID   string `json:"machine_id"`
+		DeviceID    string `json:"device_id"`
+	}
+	if errBind := c.ShouldBindJSON(&req); errBind != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "invalid body"})
+		return
+	}
+	state := strings.TrimSpace(req.State)
+	if state == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "state is required"})
+		return
+	}
+	if errState := ValidateOAuthState(state); errState != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "invalid state"})
+		return
+	}
+	if errGuard := guardOAuthSessionPendingForSave(state, "trae"); errGuard != nil {
+		c.JSON(http.StatusConflict, gin.H{"status": "error", "error": errGuard.Error()})
+		return
+	}
+	redirectURL := strings.TrimSpace(req.RedirectURL)
+	if redirectURL == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "redirect_url is required"})
+		return
+	}
+
+	ctx := PopulateAuthContext(context.Background(), c)
+	client := traeauth.NewClient(h.cfg)
+	token, errParse := client.ParseCallback(redirectURL)
+	if errParse != nil {
+		log.Errorf("TRAE callback parse failed: %v", errParse)
+		SetOAuthSessionError(state, oauthSessionErrorWithCause("Authentication failed", errParse))
+		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "failed to parse TRAE callback URL"})
+		return
+	}
+
+	machineID := strings.TrimSpace(req.MachineID)
+	deviceID := strings.TrimSpace(req.DeviceID)
+
+	fileName := fmt.Sprintf("trae-%s.json", token.UID)
+	metadata := map[string]any{
+		"type":          "trae",
+		"auth_kind":     "oauth",
+		"access_token":  token.AccessToken,
+		"refresh_token": token.RefreshToken,
+		"expires_at":    token.ExpiresAt,
+		"api_host":      token.APIHost,
+		"uid":           token.UID,
+		"machine_id":    machineID,
+		"device_id":     deviceID,
+		"timestamp":     time.Now().UnixMilli(),
+	}
+	if strings.TrimSpace(token.RefreshToken) == "" {
+		delete(metadata, "refresh_token")
+	}
+	if token.ExpiresAt <= 0 {
+		delete(metadata, "expires_at")
+	}
+	record := &coreauth.Auth{
+		ID:       fileName,
+		Provider: "trae",
+		FileName: fileName,
+		Label:    "TRAE SOLO CN",
+		Metadata: metadata,
+		Attributes: map[string]string{
+			coreauth.AttributeAuthKind: coreauth.AuthKindOAuth,
+			"api_key":                  token.AccessToken,
+			"uid":                      token.UID,
+			"machine_id":               machineID,
+			"device_id":                deviceID,
+			"base_url":                 traeauth.AgentHost,
+		},
+	}
+	savedPath, errSave := h.saveTokenRecord(ctx, record)
+	if errSave != nil {
+		log.Errorf("Failed to save TRAE token: %v", errSave)
+		SetOAuthSessionError(state, "Failed to save authentication tokens")
+		c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "error": "failed to save authentication tokens"})
+		return
+	}
+	CompleteOAuthSession(state)
+	fmt.Printf("TRAE authentication successful! Token saved to %s\n", savedPath)
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "uid": token.UID, "path": savedPath})
 }
 
 // CancelAuthSession cancels a pending OAuth session identified by state.

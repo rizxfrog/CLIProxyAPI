@@ -639,6 +639,91 @@ type DeepSeekWebKey = CodeBuddyCNKey
 // DeepSeekWebModel uses the shared static/configured model mapping shape.
 type DeepSeekWebModel = CodeBuddyCNModel
 
+// TraeKey represents a TRAE SOLO CN desktop credential (Cloud-IDE-JWT +
+// optional refresh token + machine/device identity). The upstream protocol is
+// the desktop solo_work_lite channel at trae-api-cn.mchost.guru.
+type TraeKey struct {
+	// APIKey is the Cloud-IDE-JWT access token copied from a logged-in desktop
+	// client or produced by the /authorize login flow.
+	APIKey string `yaml:"api-key" json:"api-key"`
+
+	// RefreshToken optionally enables automatic ExchangeToken rotation.
+	RefreshToken string `yaml:"refresh-token,omitempty" json:"refresh-token,omitempty"`
+
+	// UID is the SOLO account user id sent as the X-Uid header.
+	UID string `yaml:"uid,omitempty" json:"uid,omitempty"`
+
+	// MachineID is the desktop machine id sent as X-Machine-Id.
+	MachineID string `yaml:"machine-id,omitempty" json:"machine-id,omitempty"`
+
+	// DeviceID is the desktop device id sent as X-Device-Id.
+	DeviceID string `yaml:"device-id,omitempty" json:"device-id,omitempty"`
+
+	// ApiHost overrides the ExchangeToken / GetUserInfo host. Defaults to
+	// https://api.trae.com.cn.
+	ApiHost string `yaml:"api-host,omitempty" json:"api-host,omitempty"`
+
+	// Priority controls selection preference when multiple credentials match.
+	Priority int `yaml:"priority,omitempty" json:"priority,omitempty"`
+
+	// Weight controls proportional selection under weighted-round-robin.
+	Weight *int `yaml:"weight,omitempty" json:"weight,omitempty"`
+
+	// Prefix optionally namespaces models for this credential.
+	Prefix string `yaml:"prefix,omitempty" json:"prefix,omitempty"`
+
+	// BaseURL overrides the SOLO agent gateway. Defaults to
+	// https://trae-api-cn.mchost.guru.
+	BaseURL string `yaml:"base-url,omitempty" json:"base-url,omitempty"`
+
+	// ProxyURL overrides the global proxy setting for this credential.
+	ProxyURL string `yaml:"proxy-url,omitempty" json:"proxy-url,omitempty"`
+
+	// Models defines upstream model names and aliases for request routing.
+	Models []TraeModel `yaml:"models,omitempty" json:"models,omitempty"`
+
+	// Headers optionally adds extra HTTP headers for requests sent with this credential.
+	Headers map[string]string `yaml:"headers,omitempty" json:"headers,omitempty"`
+
+	// ExcludedModels lists model IDs that should be excluded for this provider.
+	ExcludedModels []string `yaml:"excluded-models,omitempty" json:"excluded-models,omitempty"`
+
+	// DisableCooling overrides the global cooling policy for this credential when set.
+	DisableCooling *bool `yaml:"disable-cooling,omitempty" json:"disable-cooling,omitempty"`
+}
+
+// TraeModel represents the model mapping for a Trae SOLO CN credential.
+type TraeModel struct {
+	// Name is the upstream config_name used when issuing requests.
+	Name string `yaml:"name" json:"name"`
+
+	// Alias is the client-facing model name that maps to Name.
+	Alias string `yaml:"alias" json:"alias"`
+
+	// DisplayName is the optional human-readable name shown in model catalogs.
+	DisplayName string `yaml:"display-name,omitempty" json:"display-name,omitempty"`
+
+	// MaxContextLength overrides the context window advertised to clients.
+	MaxContextLength int `yaml:"max-context-length,omitempty" json:"max-context-length,omitempty"`
+
+	// ForceMapping rewrites upstream response model fields back to Alias.
+	ForceMapping bool `yaml:"force-mapping,omitempty" json:"force-mapping,omitempty"`
+
+	// IsCompat preserves thinking blocks for compatible upstreams.
+	IsCompat bool `yaml:"is-compat,omitempty" json:"is-compat,omitempty"`
+
+	// Thinking configures the thinking/reasoning capability for this model.
+	Thinking *registry.ThinkingSupport `yaml:"thinking,omitempty" json:"thinking,omitempty"`
+}
+
+func (m TraeModel) GetName() string                        { return m.Name }
+func (m TraeModel) GetAlias() string                       { return m.Alias }
+func (m TraeModel) GetDisplayName() string                 { return m.DisplayName }
+func (m TraeModel) GetMaxContextLength() int               { return m.MaxContextLength }
+func (m TraeModel) GetForceMapping() bool                  { return m.ForceMapping }
+func (m TraeModel) GetIsCompat() bool                      { return m.IsCompat }
+func (m TraeModel) GetThinking() *registry.ThinkingSupport { return m.Thinking }
+
 // GeminiKey represents the configuration for a Gemini API key,
 // including optional overrides for upstream base URL, proxy routing, and headers.
 type GeminiKey struct {

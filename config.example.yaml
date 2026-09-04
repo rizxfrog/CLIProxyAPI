@@ -515,6 +515,23 @@ nonstream-keepalive-interval: 0
 #     excluded-models:
 #       - "deepseek-v4-pro-search"
 
+# TRAE SOLO CN desktop credential. Copy the Cloud-IDE-JWT access token from a
+# logged-in desktop client (or use the login.sh flow from traework2api) and paste
+# it as api-key. Set refresh-token to enable automatic ExchangeToken rotation.
+# trae-api-key:
+#   - api-key: "YOUR_CLOUD_IDE_JWT"
+#     refresh-token: "YOUR_REFRESH_TOKEN" # optional: enables automatic token rotation
+#     uid: "3273661518457721"            # optional: sent as X-Uid
+#     machine-id: "hex32"                 # optional: sent as X-Machine-Id
+#     device-id: "hex32"                  # optional: sent as X-Device-Id
+#     api-host: "https://api.trae.com.cn" # optional: ExchangeToken / GetUserInfo host
+#     base-url: "https://trae-api-cn.mchost.guru" # optional: SOLO agent gateway
+#     weight: 1
+#     prefix: "trae"                      # optional: require trae/glm-5.2
+#     models:
+#       - name: "glm-5.2"                 # upstream config_name
+#         alias: "glm-5.2"
+
 # Claude API keys
 # claude-api-key:
 #   - api-key: "sk-atSM..." # use the official claude API key, no need to set the base url
