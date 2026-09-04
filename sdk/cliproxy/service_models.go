@@ -177,6 +177,17 @@ func (s *Service) registerModelsForAuthWithCache(ctx context.Context, a *coreaut
 			}
 		}
 		models = applyExcludedModels(models, excluded)
+	case constant.Trae:
+		models = registry.GetTraeModels()
+		if entry := s.resolveConfigTraeKey(a); entry != nil {
+			if len(entry.Models) > 0 {
+				models = buildTraeConfigModels(entry)
+			}
+			if authKind == "apikey" {
+				excluded = entry.ExcludedModels
+			}
+		}
+		models = applyExcludedModels(models, excluded)
 	default:
 		// Handle OpenAI-compatibility providers by name using config
 		if s.cfg != nil {
@@ -516,6 +527,44 @@ func (s *Service) resolveConfigXAIKey(auth *coreauth.Auth) *config.XAIKey {
 	return resolveConfigCodexStyleKey(auth, s.cfg.XAIKey, false)
 }
 
+func (s *Service) resolveConfigTraeKey(auth *coreauth.Auth) *config.TraeKey {
+	if s == nil || s.cfg == nil {
+		return nil
+	}
+	return matchTraeConfigKey(auth, s.cfg.TraeKey)
+}
+
+func matchTraeConfigKey(auth *coreauth.Auth, entries []config.TraeKey) *config.TraeKey {
+	if auth == nil || auth.AuthKind() != coreauth.AuthKindAPIKey {
+		return nil
+	}
+	var attrKey, attrBase string
+	if auth.Attributes != nil {
+		attrKey = strings.TrimSpace(auth.Attributes["api_key"])
+		attrBase = strings.TrimSpace(auth.Attributes["base_url"])
+	}
+	matchesCredentials := func(entry *config.TraeKey) bool {
+		if entry == nil {
+			return false
+		}
+		cfgKey := strings.TrimSpace(entry.APIKey)
+		cfgBase := strings.TrimSpace(entry.BaseURL)
+		if attrKey != "" {
+			return strings.EqualFold(cfgKey, attrKey) && (cfgBase == "" || strings.EqualFold(cfgBase, attrBase))
+		}
+		return attrBase != "" && strings.EqualFold(cfgBase, attrBase)
+	}
+	if entry := configEntryForAuthIndex(auth, entries); entry != nil && matchesCredentials(entry) {
+		return entry
+	}
+	for i := range entries {
+		if entry := &entries[i]; matchesCredentials(entry) {
+			return entry
+		}
+	}
+	return nil
+}
+
 func resolveConfigCodexStyleKey(auth *coreauth.Auth, entries []config.CodexKey, validateIndexCredentials bool) *config.CodexKey {
 	if auth == nil {
 		return nil
@@ -846,6 +895,13 @@ func buildXAIConfigModels(entry *config.XAIKey) []*ModelInfo {
 		return nil
 	}
 	return buildConfigModels(entry.Models, "xai", "xai")
+}
+
+func buildTraeConfigModels(entry *config.TraeKey) []*ModelInfo {
+	if entry == nil {
+		return nil
+	}
+	return buildConfigModels(entry.Models, constant.Trae, "openai")
 }
 
 func buildCodeBuddyCNConfigModels(entry *config.CodeBuddyCNKey) []*ModelInfo {
