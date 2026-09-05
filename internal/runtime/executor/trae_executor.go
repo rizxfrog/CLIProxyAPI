@@ -384,6 +384,14 @@ func traeNormalizeMessages(body []byte) []byte {
 		}
 
 		role, _ := m["role"].(string)
+		// Pi and newer OpenAI clients may send developer messages. The SOLO
+		// native agent accepts system/assistant/user/tool/function, so preserve
+		// the instruction semantics by mapping developer to system.
+		if role == "developer" {
+			m["role"] = "system"
+			changed = true
+			role = "system"
+		}
 		if role == "assistant" {
 			if tcs, ok := m["tool_calls"].([]any); ok {
 				kept := make([]any, 0, len(tcs))
@@ -679,7 +687,10 @@ func (s *traeSSEState) consumeSSELine(line string) [][]byte {
 	case strings.HasPrefix(line, "event:"):
 		s.event = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
 	case strings.HasPrefix(line, "data:"):
-		s.data.WriteString(strings.TrimPrefix(line, "data:"))
+		if s.data.Len() > 0 {
+			s.data.WriteByte('\n')
+		}
+		s.data.WriteString(strings.TrimSpace(strings.TrimPrefix(line, "data:")))
 	}
 	return nil
 }
@@ -731,13 +742,13 @@ func (s *traeSSEState) dispatchEvent(event, dataLine string) [][]byte {
 			finish = v
 		}
 		s.finished = true
-		return [][]byte{s.streamFrame(map[string]any{}, finish), []byte("data: [DONE]\n\n")}
+		return [][]byte{s.streamFrame(map[string]any{}, finish)}
 	case "error":
 		code, _ := raw["code"].(float64)
 		msg, _ := raw["message"].(string)
 		return [][]byte{s.streamFrame(map[string]any{
 			"content": fmt.Sprintf("trae error code=%d msg=%s", int64(code), msg),
-		}, "stop"), []byte("data: [DONE]\n\n")}
+		}, "stop")}
 	}
 	return nil
 }
@@ -827,7 +838,7 @@ func (s *traeSSEState) finishFrames() [][]byte {
 		s.roleEmitted = true
 		frames = append(frames, s.streamFrame(map[string]any{"role": "assistant", "content": ""}, nil))
 	}
-	frames = append(frames, s.streamFrame(map[string]any{}, "stop"), []byte("data: [DONE]\n\n"))
+	frames = append(frames, s.streamFrame(map[string]any{}, "stop"))
 	s.finished = true
 	return frames
 }
