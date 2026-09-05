@@ -32,6 +32,7 @@ auths/*
 docs/*
 !docs/codebuddy-cn-tls-fingerprint.md
 !docs/deepseek-web.md
+!docs/scripts/
 AGENTS.md
 CLAUDE.md
 GEMINI.md

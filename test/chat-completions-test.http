@@ -1,0 +1,115 @@
+@Token = sk-test
+@BASE_URL = http://localhost:8317
+@MODEL_ID = qwen3.8-max
+
+### chat-completions
+
+POST {{BASE_URL}}/v1/chat/completions
+Authorization: Bearer {{Token}}
+Content-Type: application/json
+
+{
+    "model": "{{ MODEL_ID }}",
+    "messages": [{"role": "user", "content": "hi"}],
+    "stream": false
+  }
+
+### chat-completions sse
+
+POST {{BASE_URL}}/v1/chat/completions
+Authorization: Bearer {{Token}}
+Content-Type: application/json
+
+{
+  "model": "{{ MODEL_ID }}",
+  "messages": [{"role": "user", "content": "hi"}],
+  "stream": true
+}
+
+### chat-completions thinking (reasoning_effort=high)
+
+POST {{BASE_URL}}/v1/chat/completions
+Authorization: Bearer {{Token}}
+Content-Type: application/json
+
+{
+  "model": "{{ MODEL_ID }}",
+  "messages": [{"role": "user", "content": "9.11 和 9.9 哪个大？请一步步推理。"}],
+  "reasoning_effort": "high",
+  "stream": false
+}
+
+### chat-completions thinking (reasoning_effort=high, streaming)
+
+POST {{BASE_URL}}/v1/chat/completions
+Authorization: Bearer {{Token}}
+Content-Type: application/json
+
+{
+  "model": "{{ MODEL_ID }}",
+  "messages": [{"role": "user", "content": "9.11 和 9.9 哪个大？请一步步推理。"}],
+  "reasoning_effort": "high",
+  "stream": true
+}
+
+### chat-completions thinking (reasoning_effort=none)
+
+POST {{BASE_URL}}/v1/chat/completions
+Authorization: Bearer {{Token}}
+Content-Type: application/json
+
+{
+  "model": "{{ MODEL_ID }}",
+  "messages": [{"role": "user", "content": "hi"}],
+  "reasoning_effort": "none",
+  "stream": false
+}
+
+### chat-completions thinking (reasoning_effort=auto)
+
+POST {{BASE_URL}}/v1/chat/completions
+Authorization: Bearer {{Token}}
+Content-Type: application/json
+
+{
+  "model": "{{ MODEL_ID }}",
+  "messages": [{"role": "user", "content": "hi"}],
+  "reasoning_effort": "auto",
+  "stream": false
+}
+
+### chat-completions thinking (model suffix high)
+
+POST {{BASE_URL}}/v1/chat/completions
+Authorization: Bearer {{Token}}
+Content-Type: application/json
+
+{
+  "model": "{{ MODEL_ID }}(high)",
+  "messages": [{"role": "user", "content": "9.11 和 9.9 哪个大？请一步步推理。"}],
+  "stream": false
+}
+
+### chat-completions thinking (model suffix budget 8192)
+
+POST {{BASE_URL}}/v1/chat/completions
+Authorization: Bearer {{Token}}
+Content-Type: application/json
+
+{
+  "model": "{{ MODEL_ID }}(8192)",
+  "messages": [{"role": "user", "content": "9.11 和 9.9 哪个大？请一步步推理。"}],
+  "stream": false
+}
+
+### chat-completions thinking (model suffix none)
+
+POST {{BASE_URL}}/v1/chat/completions
+Authorization: Bearer {{Token}}
+Content-Type: application/json
+
+{
+  "model": "{{ MODEL_ID }}(none)",
+  "messages": [{"role": "user", "content": "hi"}],
+  "stream": false
+}
