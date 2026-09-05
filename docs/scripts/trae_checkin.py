@@ -15,6 +15,12 @@ TRAE SOLO CN 每日签到脚本
 鉴权（bb() @1694752 + cb() @1695022 + fb() @1696860）:
   - Authorization: Cloud-IDE-JWT <accessToken>
   - x-device-id / x-device-brand / x-device-type: 设备身份头
+  - x-os-version / x-app-version: 客户端运行环境头
+  - x-rust-request-timeout: Electron TTNet 底层自动添加的超时头
+
+注意：凭证文件中的 device_id 可能不是当前客户端的 guaranteedDeviceId。
+如果 claim 返回 9074，应从 Trae 客户端 renderer.log 中提取运行时 device_id，
+通过 --device-id 传入。status 能成功不能证明 claim 的设备风控已经通过。
 
 登录态来源（自动读取，也可手动传入）:
   CLIProxyAPI 凭证目录:  ~/.cli-proxy-api/auths/trae-<uid>.json
@@ -33,6 +39,10 @@ TRAE SOLO CN 每日签到脚本
   uv run trae_checkin.py status                           # 仅查询状态
   uv run trae_checkin.py --token <TOKEN>                  # 手动指定 token
   uv run trae_checkin.py --auth-file <FILE>               # 对单个凭证文件签到
+  # 若凭证里的 device_id 不是当前客户端运行时 ID，从 renderer.log 提取后覆盖：
+  uv run trae_checkin.py --auth-file <FILE> \\
+    --device-id 4456774404944876 --device-type windows \\
+    --os-version "Windows 11 Home" --app-version 0.1.62
   uv run trae_checkin.py --auth-dir ~/.cli-proxy-api/auths          # 批量签到
   uv run trae_checkin.py --auth-dir ~/.cli-proxy-api/auths --prefix trae  # 只处理 trae*.json
   uv run trae_checkin.py --usage                          # 附带查询积分余额
@@ -75,9 +85,10 @@ EP_USAGE = "/trae/api/v2/pay/ide_user_ent_usage"
 
 # 业务错误码语义（实测）
 #   9074: "当前参与用户太多，请稍后再试"
-#         服务端活动侧的排队/发放限制。实测稳定复现（非瞬时拥塞），
-#         且与 TLS 栈无关：urllib 与 curl（不同 JA3 指纹）返回一致。
-#         属可重试错误，通常由每日名额发放窗口决定。
+#         可能表示活动侧排队/发放限制，也可能是设备环境风控软拒绝。
+#         重要：签到写接口会校验运行时 device_id，不能盲目使用
+#         OAuth 凭证落盘时的 device_id。优先使用客户端日志中的
+#         guaranteedDeviceId，并补齐 TTNet/版本环境头。
 #   9090: "活动暂不可用"（activity/action 通道返回）
 #         该 activity_id 不走通用活动通道，或参数不匹配。
 RETRYABLE_CODES = frozenset({9074})
@@ -92,7 +103,9 @@ AUTH_REL_PATH = (".cli-proxy-api", "auths")
 DEFAULT_MACHINE_ID = "0123456789abcdef0123456789abcdef"
 DEFAULT_DEVICE_ID = "0123456789abcdef0123456789abcdef"
 DEFAULT_DEVICE_BRAND = "83DG"
-DEFAULT_DEVICE_TYPE = "Windows 11 Pro"
+DEFAULT_DEVICE_TYPE = "windows"
+DEFAULT_OS_VERSION = "Windows 11 Home"
+DEFAULT_APP_VERSION = "0.1.62"
 
 
 def _decode_jwt_uid(token: str) -> str | None:
@@ -155,7 +168,9 @@ def load_session(auth_file: Path | None) -> dict:
             "uid": str(uid or ""),
             "device_id": data.get("deviceId") or data.get("device_id") or DEFAULT_DEVICE_ID,
             "device_brand": data.get("deviceBrand") or DEFAULT_DEVICE_BRAND,
-            "device_type": data.get("osVersion") or DEFAULT_DEVICE_TYPE,
+            "device_type": data.get("deviceType") or DEFAULT_DEVICE_TYPE,
+            "os_version": data.get("osVersion") or DEFAULT_OS_VERSION,
+            "app_version": data.get("appVersion") or DEFAULT_APP_VERSION,
             "ug_host": (data.get("base_url") or "").rstrip("/") or None,
             "_path": str(path),
         }
@@ -185,7 +200,9 @@ def load_session(auth_file: Path | None) -> dict:
         "uid": str(uid or ""),
         "device_id": src.get("deviceId") or src.get("device_id") or DEFAULT_DEVICE_ID,
         "device_brand": src.get("deviceBrand") or DEFAULT_DEVICE_BRAND,
-        "device_type": src.get("osVersion") or DEFAULT_DEVICE_TYPE,
+        "device_type": src.get("deviceType") or DEFAULT_DEVICE_TYPE,
+        "os_version": src.get("osVersion") or DEFAULT_OS_VERSION,
+        "app_version": src.get("appVersion") or DEFAULT_APP_VERSION,
         "ug_host": src.get("ugHost") or src.get("apiHost") or None,
         "_path": str(path),
     }
@@ -224,8 +241,8 @@ def _http_json(url: str, headers: dict, body: dict, timeout: int) -> dict:
 
 
 def build_headers(session: dict) -> dict:
-    """还原 main.js 的 bb() + cb() + fb()。"""
-    return {
+    """还原 main.js 的 bb() + cb() + fb() 与 TTNet 公共头。"""
+    headers = {
         "Accept": "application/json",
         "Content-Type": "application/json",
         # cb() → mixAuthorization()
@@ -234,7 +251,14 @@ def build_headers(session: dict) -> dict:
         "x-device-id": str(session.get("device_id") or DEFAULT_DEVICE_ID),
         "x-device-brand": str(session.get("device_brand") or DEFAULT_DEVICE_BRAND),
         "x-device-type": str(session.get("device_type") or DEFAULT_DEVICE_TYPE),
+        # Electron TTNet iCubeBaseTTNetService.c() 自动添加
+        "x-rust-request-timeout": str(session.get("request_timeout_ms") or 30000),
     }
+    if session.get("os_version"):
+        headers["x-os-version"] = str(session["os_version"])
+    if session.get("app_version"):
+        headers["x-app-version"] = str(session["app_version"])
+    return headers
 
 
 # ---------------------------------------------------------------- 业务
@@ -415,6 +439,21 @@ def _print_usage(ug_host: str, session: dict, timeout: int) -> None:
         print(f"[✗] 积分查询失败: HTTP {ur['status']} code={_biz_code(upayload)}")
 
 
+def _apply_cli_overrides(args: argparse.Namespace, session: dict) -> dict:
+    """Apply runtime client identity overrides to any credential source."""
+    if args.device_id:
+        session["device_id"] = args.device_id
+    if args.device_brand:
+        session["device_brand"] = args.device_brand
+    if args.device_type:
+        session["device_type"] = args.device_type
+    if args.os_version:
+        session["os_version"] = args.os_version
+    if args.app_version:
+        session["app_version"] = args.app_version
+    return session
+
+
 def _auth_dir_files(auth_dir: Path, prefix: str | None = None) -> list[Path]:
     """返回目录下所有 .json 凭证文件（排序后），可按文件名前缀过滤。"""
     if not auth_dir.is_dir():
@@ -447,8 +486,10 @@ def main() -> int:
     ap.add_argument("--token", default=None, help="手动指定 accessToken（Cloud-IDE-JWT）")
     ap.add_argument("--uid", default=None)
     ap.add_argument("--device-id", default=None)
-    ap.add_argument("--device-brand", default=DEFAULT_DEVICE_BRAND)
-    ap.add_argument("--device-type", default=DEFAULT_DEVICE_TYPE)
+    ap.add_argument("--device-brand", default=None, help="x-device-brand")
+    ap.add_argument("--device-type", default=None, help="x-device-type，例如 windows")
+    ap.add_argument("--os-version", default=None, help="x-os-version，例如 Windows 11 Home")
+    ap.add_argument("--app-version", default=None, help="x-app-version，例如 0.1.62")
     ap.add_argument("--usage", action="store_true", help="附带查询积分余额")
     ap.add_argument("--dry-run", action="store_true", help="只查询状态，不执行签到")
     ap.add_argument(
@@ -473,8 +514,10 @@ def main() -> int:
             "token": args.token,
             "uid": args.uid or _decode_jwt_uid(args.token) or "",
             "device_id": args.device_id or DEFAULT_DEVICE_ID,
-            "device_brand": args.device_brand,
-            "device_type": args.device_type,
+            "device_brand": args.device_brand or DEFAULT_DEVICE_BRAND,
+            "device_type": args.device_type or DEFAULT_DEVICE_TYPE,
+            "os_version": args.os_version or DEFAULT_OS_VERSION,
+            "app_version": args.app_version or DEFAULT_APP_VERSION,
         }
         return _run_one(args, session, ug_host)
 
@@ -491,6 +534,7 @@ def main() -> int:
                 print(f"[✗] 跳过 {path}: {e}")
                 failures += 1
                 continue
+            _apply_cli_overrides(args, session)
             host = ug_host
             # 凭证文件里若带 ug_host/apiHost，优先使用（未显式传 --ug-host 时）
             if session.get("ug_host") and args.ug_host == DEFAULT_UG_HOST:
@@ -499,6 +543,7 @@ def main() -> int:
         return failures
 
     session = load_session(args.auth_file)
+    _apply_cli_overrides(args, session)
     if session.get("ug_host") and args.ug_host == DEFAULT_UG_HOST:
         ug_host = str(session["ug_host"]).rstrip("/")
     return _run_one(args, session, ug_host)
