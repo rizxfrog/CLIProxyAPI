@@ -76,7 +76,7 @@ func TestFetchLatestAssetSetsGitHubAuthorization(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		authorization = req.Header.Get("Authorization")
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"assets":[{"name":"management.html","browser_download_url":"https://example.com/management.html","digest":"sha256:abc123"}]}`))
+		_, _ = w.Write([]byte(`{"assets":[{"name":"@management.html","browser_download_url":"https://example.com/@management.html","digest":"sha256:abc123"}]}`))
 	}))
 	defer server.Close()
 
@@ -105,7 +105,7 @@ func TestFetchLatestAssetOmitsAuthorizationWithoutToken(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		authorization = req.Header.Get("Authorization")
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"assets":[{"name":"management.html","browser_download_url":"https://example.com/management.html","digest":"sha256:abc123"}]}`))
+		_, _ = w.Write([]byte(`{"assets":[{"name":"@management.html","browser_download_url":"https://example.com/@management.html","digest":"sha256:abc123"}]}`))
 	}))
 	defer server.Close()
 
