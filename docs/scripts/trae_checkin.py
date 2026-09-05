@@ -57,7 +57,8 @@ TRAE SOLO CN 每日签到脚本
        （同账号的 status / usage / activity 接口均返回 code 0）。
        通常需等待下一个每日名额发放窗口，用 --retry 重试即可。
   9090 「活动暂不可用」  activity/action 通道返回，说明该奖励不走此通道。
-  1001 / 2001            今日已签到，脚本视为成功（幂等）。
+  1001 / 2001 / 9095     今日已签到，脚本视为成功（幂等）。
+                           9095 实测文案：当前设备今日已经签到，请明日再来哦～
 """
 
 from __future__ import annotations
@@ -92,8 +93,8 @@ EP_USAGE = "/trae/api/v2/pay/ide_user_ent_usage"
 #   9090: "活动暂不可用"（activity/action 通道返回）
 #         该 activity_id 不走通用活动通道，或参数不匹配。
 RETRYABLE_CODES = frozenset({9074})
-# 「已签到」类：视作成功（幂等）
-ALREADY_CODES = frozenset({1001, 2001})
+# 「已签到」类：视作成功（幂等）。9095 是当前接口实测返回码。
+ALREADY_CODES = frozenset({1001, 2001, 9095})
 
 # CLIProxyAPI 默认 auth 目录
 AUTH_REL_PATH = (".cli-proxy-api", "auths")
@@ -356,8 +357,11 @@ def _run_one(args: argparse.Namespace, session: dict, ug_host: str) -> int:
         print("\n[i] 该账号未开启签到功能，无需处理。")
         return 0
 
-    if checked_in:
-        print("\n[✓] 今日已签到，无需重复。")
+    # 新版接口中 checked_in 可能仍为 false，而 did_checked_in 才反映
+    # 当前设备今日是否已经领取；两者任一为 true 都应跳过 claim。
+    already_checked_in = checked_in is True or did_checked_in is True
+    if already_checked_in:
+        print("\n[✓] 当前设备今日已签到，无需重复。")
         if args.usage:
             _print_usage(ug_host, session, args.timeout)
         return 0
@@ -411,10 +415,11 @@ def _run_one(args: argparse.Namespace, session: dict, ug_host: str) -> int:
     if ccode in RETRYABLE_CODES:
         print(
             f"\n[!] 签到未成功：{ccode_msg(ccode)}\n"
-            "[i] 说明：这是服务端活动侧的排队/发放限制，不是客户端问题。\n"
-            "    已实测排除 TLS 指纹因素（urllib 与 curl 两种 TLS 栈返回一致），\n"
-            "    也与认证无关（同账号的 status / usage / activity 接口均正常）。\n"
-            "    通常需等待下一个每日名额发放窗口，稍后重试即可。"
+            "[i] 说明：9074 可能是服务端活动排队，也可能是运行时设备身份不匹配。\n"
+            "    status 能成功不能证明 claim 的设备风控已经通过。请确认 --device-id\n"
+            "    使用 Trae renderer.log 中的 guaranteedDeviceId，而不是凭证文件里的旧值，\n"
+            "    并补齐 --device-type/--os-version/--app-version。\n"
+            "    若运行时设备身份正确仍返回 9074，再等待活动发放窗口后重试。"
         )
         return 2
 
