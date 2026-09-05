@@ -36,6 +36,18 @@ TRAE SOLO CN 每日签到脚本
   uv run trae_checkin.py --auth-dir ~/.cli-proxy-api/auths          # 批量签到
   uv run trae_checkin.py --auth-dir ~/.cli-proxy-api/auths --prefix trae  # 只处理 trae*.json
   uv run trae_checkin.py --usage                          # 附带查询积分余额
+  uv run trae_checkin.py --retry 3 --retry-delay 30       # 遇排队错误自动重试
+
+业务错误码（实测）:
+  code 0                      签到成功
+  9074 「当前参与用户太多，请稍后再试」
+       服务端活动侧的排队/发放限制，属可重试错误。
+       已实测排除 TLS 指纹因素：urllib 与 curl（不同 JA3 指纹）返回完全一致，
+       且连续多次稳定复现（非瞬时拥塞），也与认证无关
+       （同账号的 status / usage / activity 接口均返回 code 0）。
+       通常需等待下一个每日名额发放窗口，用 --retry 重试即可。
+  9090 「活动暂不可用」  activity/action 通道返回，说明该奖励不走此通道。
+  1001 / 2001            今日已签到，脚本视为成功（幂等）。
 """
 
 from __future__ import annotations
@@ -45,6 +57,7 @@ import base64
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 # 尽量零依赖：优先用 requests，否则退回标准库 urllib
@@ -59,6 +72,17 @@ DEFAULT_UG_HOST = "https://api.trae.cn"
 EP_STATUS = "/trae/api/v2/ug/checkin_credits/status"
 EP_CLAIM = "/trae/api/v2/ug/checkin_credits/claim"
 EP_USAGE = "/trae/api/v2/pay/ide_user_ent_usage"
+
+# 业务错误码语义（实测）
+#   9074: "当前参与用户太多，请稍后再试"
+#         服务端活动侧的排队/发放限制。实测稳定复现（非瞬时拥塞），
+#         且与 TLS 栈无关：urllib 与 curl（不同 JA3 指纹）返回一致。
+#         属可重试错误，通常由每日名额发放窗口决定。
+#   9090: "活动暂不可用"（activity/action 通道返回）
+#         该 activity_id 不走通用活动通道，或参数不匹配。
+RETRYABLE_CODES = frozenset({9074})
+# 「已签到」类：视作成功（幂等）
+ALREADY_CODES = frozenset({1001, 2001})
 
 # CLIProxyAPI 默认 auth 目录
 AUTH_REL_PATH = (".cli-proxy-api", "auths")
@@ -246,6 +270,16 @@ def _biz_code(payload) -> int | None:
     return payload.get("code") if isinstance(payload, dict) and isinstance(payload.get("code"), int) else None
 
 
+def ccode_msg(code: int | None) -> str:
+    """把已知业务错误码翻译成人话；未知码原样返回。"""
+    return {
+        9074: "服务端活动排队中（当前参与用户太多，请稍后再试）",
+        9090: "活动暂不可用（该 activity_id 不走此通道）",
+        1001: "今日已签到",
+        2001: "今日已签到",
+    }.get(code, f"业务错误码 {code}")
+
+
 def _run_one(args: argparse.Namespace, session: dict, ug_host: str) -> int:
     """对单个登录态执行 status/checkin。"""
     print(f"[i] ug host: {ug_host}")
@@ -277,7 +311,10 @@ def _run_one(args: argparse.Namespace, session: dict, ug_host: str) -> int:
 
     enable = data.get("enable")
     checked_in = data.get("checked_in")
+    # 真实响应还含 did_checked_in（累计是否签到过）与 extra_credits（额外积分）
+    did_checked_in = data.get("did_checked_in")
     credits = data.get("credits")
+    extra_credits = data.get("extra_credits")
 
     if not isinstance(enable, bool):
         print("\n[✗] 响应缺少 enable 字段；该账号可能不是 TRAE CN 账号（需 providerCode=cn 且 scope=marscode）")
@@ -285,7 +322,11 @@ def _run_one(args: argparse.Namespace, session: dict, ug_host: str) -> int:
 
     print(f"[i] 签到功能开启: {enable}")
     if credits is not None:
-        print(f"[i] 今日积分: {credits}")
+        print(f"[i] 今日可领积分: {credits}")
+    if extra_credits is not None:
+        print(f"[i] 额外积分: {extra_credits}")
+    if isinstance(did_checked_in, bool):
+        print(f"[i] 历史已签到过: {did_checked_in}")
 
     if not enable:
         print("\n[i] 该账号未开启签到功能，无需处理。")
@@ -302,15 +343,26 @@ def _run_one(args: argparse.Namespace, session: dict, ug_host: str) -> int:
         return 0
 
     print("\n[i] 执行签到...")
-    cl = claim_checkin(ug_host, session, args.timeout)
-    cpayload = cl.get("payload") if isinstance(cl.get("payload"), dict) else {}
-    _pretty(cpayload)
+    attempts = max(1, getattr(args, "retry", 1))
+    delay = max(0, getattr(args, "retry_delay", 5))
+    ccode: int | None = None
+    cpayload: dict = {}
 
-    if cl["status"] == 200:
+    for attempt in range(1, attempts + 1):
+        cl = claim_checkin(ug_host, session, args.timeout)
+        cpayload = cl.get("payload") if isinstance(cl.get("payload"), dict) else {}
+        if attempt == 1 or getattr(args, "verbose", False):
+            _pretty(cpayload)
+
+        if cl["status"] != 200:
+            print(f"\n[✗] 签到失败，HTTP {cl['status']}")
+            return 1
+
         ccode = _biz_code(cpayload)
+
         if ccode in (None, 0):
             print("\n[✓] 签到成功！")
-            granted = cpayload.get("credits") if isinstance(cpayload, dict) else None
+            granted = cpayload.get("credits")
             if granted is None and isinstance(cpayload.get("data"), dict):
                 granted = cpayload["data"].get("credits")
             if granted is not None:
@@ -318,15 +370,31 @@ def _run_one(args: argparse.Namespace, session: dict, ug_host: str) -> int:
             if args.usage:
                 _print_usage(ug_host, session, args.timeout)
             return 0
-        if ccode in (1001, 2001):  # 常见「已签到」类错误码
+
+        if ccode in ALREADY_CODES:
             print(f"\n[✓] 已签到（业务错误码 {ccode}: {cpayload.get('message', '')}）")
             if args.usage:
                 _print_usage(ug_host, session, args.timeout)
             return 0
-        print(f"\n[✗] 签到失败，业务错误码 {ccode}: {cpayload.get('message', '')}")
-        return 1
 
-    print(f"\n[✗] 签到失败，HTTP {cl['status']}")
+        if ccode in RETRYABLE_CODES and attempt < attempts:
+            print(f"[!] 第 {attempt}/{attempts} 次: {ccode_msg(ccode)}；{delay}s 后重试...")
+            time.sleep(delay)
+            continue
+
+        break
+
+    if ccode in RETRYABLE_CODES:
+        print(
+            f"\n[!] 签到未成功：{ccode_msg(ccode)}\n"
+            "[i] 说明：这是服务端活动侧的排队/发放限制，不是客户端问题。\n"
+            "    已实测排除 TLS 指纹因素（urllib 与 curl 两种 TLS 栈返回一致），\n"
+            "    也与认证无关（同账号的 status / usage / activity 接口均正常）。\n"
+            "    通常需等待下一个每日名额发放窗口，稍后重试即可。"
+        )
+        return 2
+
+    print(f"\n[✗] 签到失败，业务错误码 {ccode}: {cpayload.get('message', '')}")
     return 1
 
 
@@ -383,6 +451,14 @@ def main() -> int:
     ap.add_argument("--device-type", default=DEFAULT_DEVICE_TYPE)
     ap.add_argument("--usage", action="store_true", help="附带查询积分余额")
     ap.add_argument("--dry-run", action="store_true", help="只查询状态，不执行签到")
+    ap.add_argument(
+        "--retry",
+        type=int,
+        default=1,
+        help="遇到可重试错误（如 9074 排队）时的尝试次数（默认 1，即不重试）",
+    )
+    ap.add_argument("--retry-delay", type=int, default=5, help="重试间隔秒数（默认 5）")
+    ap.add_argument("--verbose", action="store_true", help="打印每次重试的原始响应")
     ap.add_argument("--timeout", type=int, default=15)
     args = ap.parse_args()
 
