@@ -1795,7 +1795,7 @@ func TestExampleAPIKeySafeModeShowsWarningAndKeepsManagement(t *testing.T) {
 	t.Setenv("MANAGEMENT_PASSWORD", "test-management-key")
 	staticDir := t.TempDir()
 	t.Setenv("MANAGEMENT_STATIC_PATH", staticDir)
-	if err := os.WriteFile(filepath.Join(staticDir, "management.html"), []byte("<html>management app</html>"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(staticDir, "@management.html"), []byte("<html>management app</html>"), 0o600); err != nil {
 		t.Fatalf("failed to write management asset: %v", err)
 	}
 
