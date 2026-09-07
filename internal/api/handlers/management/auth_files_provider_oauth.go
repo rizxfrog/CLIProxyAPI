@@ -829,7 +829,8 @@ func watchOAuthSessionCancel(pollCtx context.Context, cancel context.CancelFunc,
 // PostTraeAuthCallback.
 func (h *Handler) RequestTraeToken(c *gin.Context) {
 	client := traeauth.NewClient(h.cfg)
-	loginURL, errBuild := client.BuildLoginURL()
+	machineID, deviceID := traeauth.ConfigIdentity(h.cfg)
+	loginURL, errBuild := client.BuildLoginURLWithIdentity(machineID, deviceID)
 	if errBuild != nil {
 		log.Errorf("Failed to start TRAE authorization: %v", errBuild)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start TRAE authorization"})

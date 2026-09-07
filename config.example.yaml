@@ -531,6 +531,15 @@ nonstream-keepalive-interval: 0
 #     models:
 #       - name: "glm-5.2"                 # upstream config_name
 #         alias: "glm-5.2"
+#
+# Daily checkin note:
+#   The OAuth flow generates a random hex32 device-id. The checkin status endpoint
+#   accepts it, but the checkin claim write endpoint returns code 9074 for it.
+#   Set device-id (and optionally machine-id) to the numeric AHA remote DID
+#   registered by your Trae desktop client, then run a new OAuth login: the login
+#   reuses the configured identity from an unclaimed trae-api-key entry and the
+#   stored auth file can claim rewards normally.
+#   Find the DID in Trae logs: [ICDRS] (init) resolve rdid: <numeric-did>
 
 # Claude API keys
 # claude-api-key:

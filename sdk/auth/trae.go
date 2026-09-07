@@ -47,9 +47,13 @@ func (a TraeAuthenticator) Login(ctx context.Context, cfg *config.Config, opts *
 	}
 
 	client := trae.NewClient(cfg)
-	loginURL, errBuild := client.BuildLoginURL()
+	machineID, deviceID := trae.ConfigIdentity(cfg)
+	loginURL, errBuild := client.BuildLoginURLWithIdentity(machineID, deviceID)
 	if errBuild != nil {
 		return nil, errBuild
+	}
+	if machineID != "" || deviceID != "" {
+		log.Debugf("cliproxy auth: reusing configured trae identity machine_id=%s device_id=%s", machineID, deviceID)
 	}
 
 	fmt.Println("Starting TRAE SOLO CN authentication...")
