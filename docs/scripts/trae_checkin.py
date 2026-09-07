@@ -79,7 +79,11 @@ except ImportError:
 
 # ---------------------------------------------------------------- 配置
 DEFAULT_UG_HOST = "https://api.trae.cn"
+DEFAULT_OAUTH_HOST = "https://api.trae.com.cn"
+DEFAULT_CLIENT_ID = "en1oxy7wnw8j9n"
 
+EP_CHECK_LOGIN = "/cloudide/api/v3/trae/CheckLogin"
+EP_EXCHANGE_TOKEN = "/cloudide/api/v3/trae/oauth/ExchangeToken"
 EP_STATUS = "/trae/api/v2/ug/checkin_credits/status"
 EP_CLAIM = "/trae/api/v2/ug/checkin_credits/claim"
 EP_USAGE = "/trae/api/v2/pay/ide_user_ent_usage"
@@ -165,6 +169,7 @@ def load_session(auth_file: Path | None) -> dict:
         print(f"[i] 登录态来源: {path} (CLI 凭证)")
         return {
             "token": token,
+            "refresh_token": data.get("refresh_token") or data.get("refreshToken") or "",
             "uid": str(uid or ""),
             "device_id": data.get("deviceId") or data.get("device_id") or DEFAULT_DEVICE_ID,
             "device_brand": data.get("deviceBrand") or DEFAULT_DEVICE_BRAND,
@@ -172,6 +177,7 @@ def load_session(auth_file: Path | None) -> dict:
             "os_version": data.get("osVersion") or DEFAULT_OS_VERSION,
             "app_version": data.get("appVersion") or DEFAULT_APP_VERSION,
             "ug_host": (data.get("base_url") or "").rstrip("/") or None,
+            "oauth_host": (data.get("api_host") or DEFAULT_OAUTH_HOST).rstrip("/"),
             "_path": str(path),
         }
 
@@ -197,13 +203,15 @@ def load_session(auth_file: Path | None) -> dict:
     print(f"[i] 登录态来源: {path} ({kind})")
     return {
         "token": token,
+        "refresh_token": src.get("refreshToken") or src.get("refresh_token") or "",
         "uid": str(uid or ""),
         "device_id": src.get("deviceId") or src.get("device_id") or DEFAULT_DEVICE_ID,
         "device_brand": src.get("deviceBrand") or DEFAULT_DEVICE_BRAND,
         "device_type": src.get("deviceType") or DEFAULT_DEVICE_TYPE,
         "os_version": src.get("osVersion") or DEFAULT_OS_VERSION,
         "app_version": src.get("appVersion") or DEFAULT_APP_VERSION,
-        "ug_host": src.get("ugHost") or src.get("apiHost") or None,
+        "ug_host": src.get("ugHost") or None,
+        "oauth_host": (src.get("apiHost") or DEFAULT_OAUTH_HOST).rstrip("/"),
         "_path": str(path),
     }
 
@@ -262,6 +270,22 @@ def build_headers(session: dict) -> dict:
 
 
 # ---------------------------------------------------------------- 业务
+def check_login(session: dict, timeout: int) -> dict:
+    """Check whether the access token still has an active server session."""
+    host = str(session.get("oauth_host") or DEFAULT_OAUTH_HOST).rstrip("/")
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "x-cloudide-token": str(session["token"]),
+    }
+    return _http_json(
+        host + EP_CHECK_LOGIN,
+        headers,
+        {"ReqSource": "Lite", "IDEVersion": DEFAULT_APP_VERSION, "GetAIPayHost": True},
+        timeout,
+    )
+
+
 def checkin_status(ug_host: str, session: dict, timeout: int) -> dict:
     """POST /trae/api/v2/ug/checkin_credits/status"""
     return _http_json(ug_host.rstrip("/") + EP_STATUS, build_headers(session), {}, timeout)
@@ -343,6 +367,17 @@ def _run_one(args: argparse.Namespace, session: dict, ug_host: str) -> int:
     print(f"[i] ug host: {ug_host}")
     if session.get("uid"):
         print(f"[i] uid: {session['uid']}")
+
+    login_result = check_login(session, args.timeout)
+    login_payload = login_result.get("payload") if isinstance(login_result.get("payload"), dict) else {}
+    login_data = login_payload.get("Result") if isinstance(login_payload.get("Result"), dict) else {}
+    if login_result.get("status") == 200 and login_data.get("IsLogin") is False:
+        print(
+            "[✗] 该 OAuth 会话已被服务端注销（CheckLogin: IsLogin=false）。\n"
+            "    JWT 的 exp 尚未到期也可能发生这种情况；常见原因是账号重新登录、\n"
+            "    refresh token 已轮换或旧会话被替换。请重新完成 Trae OAuth 登录。"
+        )
+        return 3
 
     if args.action == "status":
         r = checkin_status(ug_host, session, args.timeout)
