@@ -68,6 +68,7 @@ import json
 import os
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # 尽量零依赖：优先用 requests，否则退回标准库 urllib
@@ -298,9 +299,43 @@ def ccode_msg(code: int | None) -> str:
     return {
         9074: "服务端活动排队中（当前参与用户太多，请稍后再试）",
         9090: "活动暂不可用（该 activity_id 不走此通道）",
+        9095: "当前设备今日已经签到",
         1001: "今日已签到",
         2001: "今日已签到",
     }.get(code, f"业务错误码 {code}")
+
+
+def _has_today_checkin_pack(payload: dict, uid: str) -> bool:
+    """Return whether entitlement usage contains today's Beijing checkin pack."""
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+    packs = data.get("user_entitlement_pack_list") if isinstance(data, dict) else None
+    if not isinstance(packs, list):
+        return False
+    day = datetime.now(timezone(timedelta(hours=8))).strftime("%Y%m%d")
+    expected = f"checkin_{day}_{uid}" if uid else f"checkin_{day}_"
+    for pack in packs:
+        if not isinstance(pack, dict):
+            continue
+        base = pack.get("entitlement_base_info")
+        if not isinstance(base, dict):
+            continue
+        entitlement_id = str(base.get("entitlement_id") or "")
+        if entitlement_id == expected or (not uid and entitlement_id.startswith(expected)):
+            return True
+    return False
+
+
+def _verify_checkin(ug_host: str, session: dict, timeout: int) -> bool:
+    """Verify a claim via refreshed status or today's entitlement pack."""
+    status_result = checkin_status(ug_host, session, timeout)
+    status_payload = status_result.get("payload") if isinstance(status_result.get("payload"), dict) else {}
+    status_data = status_payload.get("data") if isinstance(status_payload.get("data"), dict) else status_payload
+    if status_result.get("status") == 200 and status_data.get("checked_in") is True:
+        return True
+
+    usage_result = fetch_usage(ug_host, session, timeout)
+    usage_payload = usage_result.get("payload") if isinstance(usage_result.get("payload"), dict) else {}
+    return usage_result.get("status") == 200 and _has_today_checkin_pack(usage_payload, str(session.get("uid") or ""))
 
 
 def _run_one(args: argparse.Namespace, session: dict, ug_host: str) -> int:
@@ -349,18 +384,17 @@ def _run_one(args: argparse.Namespace, session: dict, ug_host: str) -> int:
     if extra_credits is not None:
         print(f"[i] 额外积分: {extra_credits}")
     if isinstance(did_checked_in, bool):
-        print(f"[i] 当前设备今日已签到: {did_checked_in}")
+        print(f"[i] 扩展字段 did_checked_in: {did_checked_in}（原客户端不用于状态判断）")
 
     if not enable:
         print("\n[i] 该账号未开启签到功能，无需处理。")
         return 0
 
-    # Newer responses expose did_checked_in for the current runtime device.
-    # When present it is authoritative; checked_in has different account/activity
-    # semantics and may be true while this device is still eligible to claim.
-    already_checked_in = did_checked_in if isinstance(did_checked_in, bool) else checked_in is True
+    # The official Trae client maps only checked_in to its checkedIn state.
+    # did_checked_in is an extra server field and is not used by the UI.
+    already_checked_in = checked_in is True
     if already_checked_in:
-        print("\n[✓] 当前设备今日已签到，无需重复。")
+        print("\n[✓] 今日已签到，无需重复。")
         if args.usage:
             _print_usage(ug_host, session, args.timeout)
         return 0
@@ -388,7 +422,14 @@ def _run_one(args: argparse.Namespace, session: dict, ug_host: str) -> int:
         ccode = _biz_code(cpayload)
 
         if ccode in (None, 0):
-            print("\n[✓] 签到成功！")
+            print("\n[i] claim 已受理，正在验证签到状态...")
+            if not _verify_checkin(ug_host, session, args.timeout):
+                print(
+                    "[!] claim 返回 code 0，但 status 和今日签到权益包均未确认到账。\n"
+                    "    本次只能判定为请求已受理，不能判定签到成功。"
+                )
+                return 2
+            print("[✓] 签到成功，服务端状态/权益包已确认。")
             granted = cpayload.get("credits")
             if granted is None and isinstance(cpayload.get("data"), dict):
                 granted = cpayload["data"].get("credits")
