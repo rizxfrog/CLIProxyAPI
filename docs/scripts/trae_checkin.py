@@ -18,10 +18,10 @@ TRAE SOLO CN 每日签到脚本
   - x-os-version / x-app-version: 客户端运行环境头
   - x-rust-request-timeout: Electron TTNet 底层自动添加的超时头
 
-注意：CLIProxyAPI OAuth 会为每次登录生成并保存独立的 device_id/machine_id。
-默认应使用凭证文件中与该次 OAuth 登录配套的 ID，不要跨账号混用。只有当 OAuth
-登录明确使用了外部 Trae 客户端身份时，才应从 renderer.log 提取 guaranteedDeviceId
-并通过 --device-id 覆盖。status 接口较宽松，不能用来证明任意 ID 都可用于 claim。
+注意：CLIProxyAPI OAuth 当前保存的是随机 hex32 device_id，不是 Trae AHA Device
+SDK 注册产生的数值型 remote DID。实测 status 会接受该随机 ID，但 claim 对未签到账号
+返回 9074；换成 AHA 注册 DID 后立即成功并生成签到权益包。因此执行 claim 时应使用
+--device-id、TRAE_DEVICE_ID，或 --trae-data-dir 自动提取真实 AHA DID。
 
 登录态来源（自动读取，也可手动传入）:
   CLIProxyAPI 凭证目录:  ~/.cli-proxy-api/auths/trae-<uid>.json
@@ -39,11 +39,10 @@ TRAE SOLO CN 每日签到脚本
   uv run trae_checkin.py                                  # 查询状态 + 签到
   uv run trae_checkin.py status                           # 仅查询状态
   uv run trae_checkin.py --token <TOKEN>                  # 手动指定 token
-  uv run trae_checkin.py --auth-file <FILE>               # 对单个凭证文件签到
-  # 仅当 OAuth 登录使用了外部 Trae 客户端身份时，覆盖凭证中的设备参数：
+  uv run trae_checkin.py --auth-file <FILE> --device-id 4456774404944876
+  # 或从 Trae 用户目录 logs/*/main.log 自动提取 AHA DID：
   uv run trae_checkin.py --auth-file <FILE> \\
-    --device-id 4456774404944876 --device-type windows \\
-    --os-version "Windows 11 Home" --app-version 0.1.62
+    --trae-data-dir "/path/to/TRAE SOLO CN"
   uv run trae_checkin.py --auth-dir ~/.cli-proxy-api/auths          # 批量签到
   uv run trae_checkin.py --auth-dir ~/.cli-proxy-api/auths --prefix trae  # 只处理 trae*.json
   uv run trae_checkin.py --usage                          # 附带查询积分余额
@@ -52,12 +51,10 @@ TRAE SOLO CN 每日签到脚本
 业务错误码（实测）:
   code 0                      签到成功
   9074 「当前参与用户太多，请稍后再试」
-       可能是服务端活动排队，也可能是 OAuth 设备上下文不一致。
-       默认应复用该凭证文件保存的 device_id/machine_id，不要跨账号混用。
-       status 接口较宽松，不能据此判断 claim 的设备上下文是否有效。
+       未签到账号使用随机 hex32 device_id 时稳定返回；改用 AHA 数值 DID 后成功。
   9090 「活动暂不可用」  activity/action 通道返回，说明该奖励不走此通道。
-  1001 / 2001 / 9095     今日已签到，脚本视为成功（幂等）。
-                           9095 实测文案：当前设备今日已经签到，请明日再来哦～
+  9095                    当前设备今日已经签到，请明日再来哦～（幂等成功）。
+  1001                    认证失败，不是“已签到”。
 """
 
 from __future__ import annotations
@@ -66,6 +63,7 @@ import argparse
 import base64
 import json
 import os
+import re
 import sys
 import time
 from datetime import datetime, timedelta, timezone
@@ -90,14 +88,13 @@ EP_USAGE = "/trae/api/v2/pay/ide_user_ent_usage"
 
 # 业务错误码语义（实测）
 #   9074: "当前参与用户太多，请稍后再试"
-#         It may indicate activity queueing or an OAuth device-context mismatch.
-#         Reuse the identity stored with the credential by default; only
-#         override it when the OAuth login used an external Trae client ID.
+#         Live verification showed this for an unregistered hex32 device ID;
+#         replacing it with an AHA numeric remote DID completed the claim.
 #   9090: "活动暂不可用"（activity/action 通道返回）
 #         该 activity_id 不走通用活动通道，或参数不匹配。
 RETRYABLE_CODES = frozenset({9074})
-# 「已签到」类：视作成功（幂等）。9095 是当前接口实测返回码。
-ALREADY_CODES = frozenset({1001, 2001, 9095})
+# Idempotent already-checked-in response confirmed against the live endpoint.
+ALREADY_CODES = frozenset({9095})
 
 # CLIProxyAPI 默认 auth 目录
 AUTH_REL_PATH = (".cli-proxy-api", "auths")
@@ -110,6 +107,12 @@ DEFAULT_DEVICE_BRAND = "83DG"
 DEFAULT_DEVICE_TYPE = "windows"
 DEFAULT_OS_VERSION = "Windows 11 Home"
 DEFAULT_APP_VERSION = "0.1.62"
+AHA_REMOTE_DEVICE_ID_PATTERN = re.compile(r"^[0-9]{12,20}$")
+AHA_LOG_DEVICE_PATTERNS = (
+    re.compile(r"\[ICDRS\].*resolve rdid:\s*([0-9]{12,20})"),
+    re.compile(r"\[ICDRS\].*initialization done, did:\s*([0-9]{12,20})"),
+    re.compile(r"RegisterDevice success.*device_id:\s*([0-9]{12,20})"),
+)
 
 
 def _decode_jwt_uid(token: str) -> str | None:
@@ -324,8 +327,8 @@ def ccode_msg(code: int | None) -> str:
         9074: "服务端活动排队中（当前参与用户太多，请稍后再试）",
         9090: "活动暂不可用（该 activity_id 不走此通道）",
         9095: "当前设备今日已经签到",
-        1001: "今日已签到",
-        2001: "今日已签到",
+        1001: "认证失败",
+        2001: "业务请求失败",
     }.get(code, f"业务错误码 {code}")
 
 
@@ -367,6 +370,8 @@ def _run_one(args: argparse.Namespace, session: dict, ug_host: str) -> int:
     print(f"[i] ug host: {ug_host}")
     if session.get("uid"):
         print(f"[i] uid: {session['uid']}")
+    if session.get("_device_source"):
+        print(f"[i] device-id 来源: {session['_device_source']} ({session.get('device_id')})")
 
     login_result = check_login(session, args.timeout)
     login_payload = login_result.get("payload") if isinstance(login_result.get("payload"), dict) else {}
@@ -438,6 +443,17 @@ def _run_one(args: argparse.Namespace, session: dict, ug_host: str) -> int:
         print("\n[i] --dry-run：跳过签到。")
         return 0
 
+    device_id = str(session.get("device_id") or "")
+    if not AHA_REMOTE_DEVICE_ID_PATTERN.fullmatch(device_id):
+        print(
+            "\n[✗] 当前凭证中的 device_id 不是 AHA 注册的数值型 DID：\n"
+            f"    {device_id or '<empty>'}\n"
+            "    CLIProxyAPI OAuth 当前生成的是随机 hex32，签到写接口可能返回 9074。\n"
+            "    请用 --device-id <AHA数值ID>，或用 --trae-data-dir 指向 Trae 用户目录，\n"
+            "    脚本会从 logs/*/main.log 自动提取 ICDRS remote device ID。"
+        )
+        return 4
+
     print("\n[i] 执行签到...")
     attempts = max(1, getattr(args, "retry", 1))
     delay = max(0, getattr(args, "retry_delay", 5))
@@ -490,10 +506,9 @@ def _run_one(args: argparse.Namespace, session: dict, ug_host: str) -> int:
     if ccode in RETRYABLE_CODES:
         print(
             f"\n[!] 签到未成功：{ccode_msg(ccode)}\n"
-            "[i] 说明：9074 可能是服务端活动排队，也可能是 OAuth 设备上下文不一致。\n"
-            "    默认请使用该凭证文件自身保存的 device_id/machine_id，不要跨账号混用。\n"
-            "    只有登录时明确复用了外部 Trae 客户端身份，才使用 --device-id 覆盖。\n"
-            "    status 接口较宽松；若配套设备身份下仍返回 9074，再稍后重试。"
+            "[i] 说明：未签到账号使用随机 hex32 device_id 时会被软拒绝。\n"
+            "    请提供 Trae AHA Device SDK 注册得到的数值型 remote DID，\n"
+            "    或通过 --trae-data-dir / TRAE_DEVICE_ID 自动或显式指定。"
         )
         return 2
 
@@ -518,10 +533,54 @@ def _print_usage(ug_host: str, session: dict, timeout: int) -> None:
         print(f"[✗] 积分查询失败: HTTP {ur['status']} code={_biz_code(upayload)}")
 
 
+def _default_trae_data_dirs() -> list[Path]:
+    """Return platform-specific Trae user-data directory candidates."""
+    candidates: list[Path] = []
+    env_dir = os.environ.get("TRAE_DATA_DIR")
+    if env_dir:
+        candidates.append(Path(env_dir).expanduser())
+    if sys.platform == "win32":
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            candidates.append(Path(appdata) / "TRAE SOLO CN")
+    return candidates
+
+
+def discover_aha_device_id(data_dir: Path) -> str | None:
+    """Extract the latest registered AHA remote DID from Trae logs."""
+    data_dir = data_dir.expanduser()
+    logs_dir = data_dir / "logs"
+    if not logs_dir.is_dir():
+        return None
+    files = list(logs_dir.glob("*/main.log")) + list(logs_dir.glob("aha_log/*.log"))
+    files = sorted((p for p in files if p.is_file()), key=lambda p: p.stat().st_mtime, reverse=True)
+    for path in files:
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        matches: list[str] = []
+        for pattern in AHA_LOG_DEVICE_PATTERNS:
+            matches.extend(pattern.findall(text))
+        if matches:
+            return matches[-1]
+    return None
+
+
 def _apply_cli_overrides(args: argparse.Namespace, session: dict) -> dict:
     """Apply runtime client identity overrides to any credential source."""
-    if args.device_id:
-        session["device_id"] = args.device_id
+    explicit_device_id = args.device_id or os.environ.get("TRAE_DEVICE_ID")
+    if explicit_device_id:
+        session["device_id"] = explicit_device_id
+        session["_device_source"] = "command/environment"
+    else:
+        candidates = [args.trae_data_dir] if args.trae_data_dir else _default_trae_data_dirs()
+        for candidate in candidates:
+            discovered = discover_aha_device_id(Path(candidate))
+            if discovered:
+                session["device_id"] = discovered
+                session["_device_source"] = f"Trae log: {candidate}"
+                break
     if args.device_brand:
         session["device_brand"] = args.device_brand
     if args.device_type:
@@ -564,7 +623,13 @@ def main() -> int:
     )
     ap.add_argument("--token", default=None, help="手动指定 accessToken（Cloud-IDE-JWT）")
     ap.add_argument("--uid", default=None)
-    ap.add_argument("--device-id", default=None)
+    ap.add_argument("--device-id", default=None, help="AHA 注册的数值型 remote device ID")
+    ap.add_argument(
+        "--trae-data-dir",
+        type=Path,
+        default=None,
+        help="Trae 用户数据目录；自动从 logs 中提取 AHA remote device ID",
+    )
     ap.add_argument("--device-brand", default=None, help="x-device-brand")
     ap.add_argument("--device-type", default=None, help="x-device-type，例如 windows")
     ap.add_argument("--os-version", default=None, help="x-os-version，例如 Windows 11 Home")
@@ -597,7 +662,9 @@ def main() -> int:
             "device_type": args.device_type or DEFAULT_DEVICE_TYPE,
             "os_version": args.os_version or DEFAULT_OS_VERSION,
             "app_version": args.app_version or DEFAULT_APP_VERSION,
+            "oauth_host": DEFAULT_OAUTH_HOST,
         }
+        _apply_cli_overrides(args, session)
         return _run_one(args, session, ug_host)
 
     # 批量目录模式
