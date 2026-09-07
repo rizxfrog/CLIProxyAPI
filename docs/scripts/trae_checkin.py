@@ -18,9 +18,10 @@ TRAE SOLO CN 每日签到脚本
   - x-os-version / x-app-version: 客户端运行环境头
   - x-rust-request-timeout: Electron TTNet 底层自动添加的超时头
 
-注意：凭证文件中的 device_id 可能不是当前客户端的 guaranteedDeviceId。
-如果 claim 返回 9074，应从 Trae 客户端 renderer.log 中提取运行时 device_id，
-通过 --device-id 传入。status 能成功不能证明 claim 的设备风控已经通过。
+注意：CLIProxyAPI OAuth 会为每次登录生成并保存独立的 device_id/machine_id。
+默认应使用凭证文件中与该次 OAuth 登录配套的 ID，不要跨账号混用。只有当 OAuth
+登录明确使用了外部 Trae 客户端身份时，才应从 renderer.log 提取 guaranteedDeviceId
+并通过 --device-id 覆盖。status 接口较宽松，不能用来证明任意 ID 都可用于 claim。
 
 登录态来源（自动读取，也可手动传入）:
   CLIProxyAPI 凭证目录:  ~/.cli-proxy-api/auths/trae-<uid>.json
@@ -39,7 +40,7 @@ TRAE SOLO CN 每日签到脚本
   uv run trae_checkin.py status                           # 仅查询状态
   uv run trae_checkin.py --token <TOKEN>                  # 手动指定 token
   uv run trae_checkin.py --auth-file <FILE>               # 对单个凭证文件签到
-  # 若凭证里的 device_id 不是当前客户端运行时 ID，从 renderer.log 提取后覆盖：
+  # 仅当 OAuth 登录使用了外部 Trae 客户端身份时，覆盖凭证中的设备参数：
   uv run trae_checkin.py --auth-file <FILE> \\
     --device-id 4456774404944876 --device-type windows \\
     --os-version "Windows 11 Home" --app-version 0.1.62
@@ -51,11 +52,9 @@ TRAE SOLO CN 每日签到脚本
 业务错误码（实测）:
   code 0                      签到成功
   9074 「当前参与用户太多，请稍后再试」
-       服务端活动侧的排队/发放限制，属可重试错误。
-       已实测排除 TLS 指纹因素：urllib 与 curl（不同 JA3 指纹）返回完全一致，
-       且连续多次稳定复现（非瞬时拥塞），也与认证无关
-       （同账号的 status / usage / activity 接口均返回 code 0）。
-       通常需等待下一个每日名额发放窗口，用 --retry 重试即可。
+       可能是服务端活动排队，也可能是 OAuth 设备上下文不一致。
+       默认应复用该凭证文件保存的 device_id/machine_id，不要跨账号混用。
+       status 接口较宽松，不能据此判断 claim 的设备上下文是否有效。
   9090 「活动暂不可用」  activity/action 通道返回，说明该奖励不走此通道。
   1001 / 2001 / 9095     今日已签到，脚本视为成功（幂等）。
                            9095 实测文案：当前设备今日已经签到，请明日再来哦～
@@ -86,10 +85,9 @@ EP_USAGE = "/trae/api/v2/pay/ide_user_ent_usage"
 
 # 业务错误码语义（实测）
 #   9074: "当前参与用户太多，请稍后再试"
-#         可能表示活动侧排队/发放限制，也可能是设备环境风控软拒绝。
-#         重要：签到写接口会校验运行时 device_id，不能盲目使用
-#         OAuth 凭证落盘时的 device_id。优先使用客户端日志中的
-#         guaranteedDeviceId，并补齐 TTNet/版本环境头。
+#         It may indicate activity queueing or an OAuth device-context mismatch.
+#         Reuse the identity stored with the credential by default; only
+#         override it when the OAuth login used an external Trae client ID.
 #   9090: "活动暂不可用"（activity/action 通道返回）
 #         该 activity_id 不走通用活动通道，或参数不匹配。
 RETRYABLE_CODES = frozenset({9074})
@@ -351,15 +349,16 @@ def _run_one(args: argparse.Namespace, session: dict, ug_host: str) -> int:
     if extra_credits is not None:
         print(f"[i] 额外积分: {extra_credits}")
     if isinstance(did_checked_in, bool):
-        print(f"[i] 历史已签到过: {did_checked_in}")
+        print(f"[i] 当前设备今日已签到: {did_checked_in}")
 
     if not enable:
         print("\n[i] 该账号未开启签到功能，无需处理。")
         return 0
 
-    # 新版接口中 checked_in 可能仍为 false，而 did_checked_in 才反映
-    # 当前设备今日是否已经领取；两者任一为 true 都应跳过 claim。
-    already_checked_in = checked_in is True or did_checked_in is True
+    # Newer responses expose did_checked_in for the current runtime device.
+    # When present it is authoritative; checked_in has different account/activity
+    # semantics and may be true while this device is still eligible to claim.
+    already_checked_in = did_checked_in if isinstance(did_checked_in, bool) else checked_in is True
     if already_checked_in:
         print("\n[✓] 当前设备今日已签到，无需重复。")
         if args.usage:
@@ -415,11 +414,10 @@ def _run_one(args: argparse.Namespace, session: dict, ug_host: str) -> int:
     if ccode in RETRYABLE_CODES:
         print(
             f"\n[!] 签到未成功：{ccode_msg(ccode)}\n"
-            "[i] 说明：9074 可能是服务端活动排队，也可能是运行时设备身份不匹配。\n"
-            "    status 能成功不能证明 claim 的设备风控已经通过。请确认 --device-id\n"
-            "    使用 Trae renderer.log 中的 guaranteedDeviceId，而不是凭证文件里的旧值，\n"
-            "    并补齐 --device-type/--os-version/--app-version。\n"
-            "    若运行时设备身份正确仍返回 9074，再等待活动发放窗口后重试。"
+            "[i] 说明：9074 可能是服务端活动排队，也可能是 OAuth 设备上下文不一致。\n"
+            "    默认请使用该凭证文件自身保存的 device_id/machine_id，不要跨账号混用。\n"
+            "    只有登录时明确复用了外部 Trae 客户端身份，才使用 --device-id 覆盖。\n"
+            "    status 接口较宽松；若配套设备身份下仍返回 9074，再稍后重试。"
         )
         return 2
 
