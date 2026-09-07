@@ -45,9 +45,13 @@ const (
 	TraeFunction = "solo_work_lite"
 
 	// TraeIdeVersion is the desktop IDE version identifier sent in headers.
-	TraeIdeVersion = "0.1.43"
+	// The upstream gates newer config_names (e.g. glm-5.3, kimi-k3) on the reported
+	// client build: an outdated version makes the model list omit them and chat
+	// requests answer 4001 "param is invalid". Keep in sync with the shipped
+	// desktop client (reverse-engineered: app 1.107.1 -> X-Ide-Version 0.1.52).
+	TraeIdeVersion = "0.1.52"
 	// TraeIdeVersionCode is the desktop IDE build code sent in headers.
-	TraeIdeVersionCode = "20260716"
+	TraeIdeVersionCode = "20260901"
 
 	// TraeChatPath is the llm_utils_chat endpoint path.
 	TraeChatPath = "/api/agent/v3/llm_utils_chat"

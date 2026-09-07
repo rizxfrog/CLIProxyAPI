@@ -39,7 +39,9 @@ const (
 	// ClientID is the public OAuth client id shipped with the SOLO desktop client.
 	ClientID = "en1oxy7wnw8j9n"
 	// IdeVersion is the desktop IDE version sent in OAuth headers.
-	IdeVersion = "0.1.43"
+	// Kept in sync with the shipped desktop client so the upstream does not gate
+	// newer config_names (e.g. glm-5.3) behind a newer build than we claim.
+	IdeVersion = "0.1.52"
 
 	// CallbackPath is the loopback path TRAE redirects to after login.
 	CallbackPath = "/authorize"
