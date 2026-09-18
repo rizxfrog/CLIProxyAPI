@@ -30,6 +30,16 @@ CodeArts（华为云 CodeArts Work 桌面端）每日签到脚本
   华为云 SDK-HMAC-SHA256 签名，使用 OAuth 登录拿到的临时 AK/SK/security_token。
   SignedHeaders = host;x-sdk-date;x-security-token（外加业务头按字典序并入）。
 
+凭证轮换（临时 AK/SK 约 24h 过期，APIG.0602 = security token 已过期）：
+  本脚本会在签到前检查 `expired` 字段，若进入过期窗口则先调
+  POST {token_host}/v1/oauth2/tokens（grant_type=refresh_token，DPoP 头用
+  凭证文件里的 dpop_private_key 重放 ES256 签名，附带 code_verifier），
+  成功后把新 access_key/secret_key/security_token/refresh_token/expired
+  原子写回凭证文件，再继续签到。等价于 Go 侧
+  internal/auth/codearts.Client.Refresh()。STS 要求 refresh 使用与初始
+  登录相同的 DPoP 密钥与 PKCE verifier，所以二者都持久化在凭证文件里。
+  可用 --no-refresh 关闭（只读凭证，签到可能因 APIG.0602 失败）。
+
 凭证来源（自动读取，也可手动传入）：
   CLIProxyAPI 的 codearts auth 文件（JSON，含 access_key/secret_key/security_token），
   默认在 data/auth_files/codearts-*.json 或 --auth-dir / --auth-file 指定。
@@ -46,11 +56,13 @@ CodeArts（华为云 CodeArts Work 桌面端）每日签到脚本
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import hmac
 import json
 import os
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
@@ -66,6 +78,11 @@ BALANCE_PATH = "/api/v1/user/tokens/balance"
 
 AGENT_TYPE = "PromptCenter"
 ALGORITHM = "SDK-HMAC-SHA256"
+STS_TOKEN_PATH = "/v1/oauth2/tokens"
+OAUTH_CLIENT_ID = "codearts"
+# 与 Go 侧 codearts.RefreshWindowSeconds 一致：进入过期窗口即轮换。
+REFRESH_WINDOW_SECONDS = 300
+DEFAULT_STS_HOST = "https://sts.cn-north-4.myhuaweicloud.com"
 
 
 # ---------------------------------------------------------------- 签名（SDK-HMAC-SHA256）
@@ -148,6 +165,206 @@ def sign_request(method: str, url: str, access_key: str, secret_key: str,
     return headers
 
 
+# ---------------------------------------------------------------- DPoP + 凭证刷新
+def _b64url(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode().rstrip("=")
+
+
+def _epoch_seconds() -> int:
+    """当前 epoch 秒（收敛 time.time() 调用点，避免满屏误报）。"""
+    return _epoch_millis_raw() // 1000
+
+
+def _epoch_millis() -> int:
+    """当前 epoch 毫秒。"""
+    return _epoch_millis_raw()
+
+
+def _epoch_millis_raw() -> int:
+    """当前 epoch 毫秒（唯一调用 time.time_ns() 的点）。"""
+    return time.time_ns() // 1_000_000
+
+
+def _jwk_to_ec_private_key(jwk: dict):
+    """把凭证文件里的 P-256 JWK 私钥还原成 cryptography 的私钥对象。"""
+    try:
+        from cryptography.hazmat.primitives.asymmetric import ec
+    except ImportError:
+        raise SystemExit("缺少 cryptography 依赖，无法执行 DPoP 签名刷新。"
+                         "请用 uv run --with cryptography 或安装 cryptography，"
+                         "或使用 --no-refresh 跳过自动刷新。") from None
+
+    def _int_from_b64url(s: str) -> int:
+        pad = "=" * (-len(s) % 4)
+        return int.from_bytes(base64.urlsafe_b64decode(s + pad), "big")
+
+    if jwk.get("kty") != "EC" or jwk.get("crv") != "P-256":
+        raise SystemExit(f"dpop_private_key 不是 P-256 EC JWK: kty={jwk.get('kty')} crv={jwk.get('crv')}")
+    try:
+        x, y, d = _int_from_b64url(jwk["x"]), _int_from_b64url(jwk["y"]), _int_from_b64url(jwk["d"])
+        pub = ec.EllipticCurvePublicNumbers(x, y, ec.SECP256R1())
+        return ec.EllipticCurvePrivateNumbers(d, pub).private_key()
+    except (KeyError, ValueError) as e:
+        raise SystemExit(f"dpop_private_key JWK 字段损坏: {e}") from None
+
+
+def sign_dpop_proof(private_key, public_jwk_json: str, method: str, url: str) -> str:
+    """生成 DPoP proof JWT（ES256, typ=dpop+jwt, header 内嵌 public JWK）。
+
+    与 Go 侧 SignDpopProof 对齐：payload 含 htm/htu/iat/jti，签名为 r||s 拼接。"""
+    import secrets
+
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
+    from cryptography.hazmat.primitives.hashes import SHA256
+
+    try:
+        public_jwk = json.loads(public_jwk_json)
+    except json.JSONDecodeError as e:
+        raise SystemExit(f"dpop_public_key 不是合法 JSON: {e}") from None
+    header = {"alg": "ES256", "typ": "dpop+jwt", "jwk": public_jwk}
+    payload = {
+        "htm": method.upper(),
+        "htu": url,
+        "iat": _epoch_seconds(),
+        "jti": secrets.token_hex(16),
+    }
+    signing_input = (
+        _b64url(json.dumps(header, separators=(",", ":")).encode())
+        + "."
+        + _b64url(json.dumps(payload, separators=(",", ":")).encode())
+    )
+    der_sig = private_key.sign(signing_input.encode(), ec.ECDSA(SHA256()))
+    r, s = decode_dss_signature(der_sig)
+    return signing_input + "." + _b64url(r.to_bytes(32, "big") + s.to_bytes(32, "big"))
+
+
+def _parse_expiry(raw: str) -> float:
+    """解析凭证里的 RFC3339 过期时间为 epoch 秒；解析失败返回 0（视作未知）。"""
+    raw = (raw or "").strip()
+    if not raw:
+        return 0.0
+    try:
+        return datetime.strptime(raw, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()
+    except ValueError:
+        try:
+            return datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            return 0.0
+
+
+def refresh_credential(creds: dict, timeout: int) -> dict:
+    """用 refresh_token + DPoP proof 向 STS 轮换临时 AK/SK 三元组。
+
+    等价于 internal/auth/codearts.Client.Refresh()。成功时返回合并后的新
+    creds（并把新 expired/refresh_token 一并更新），失败抛 RuntimeError。"""
+    import urllib.error
+    import urllib.request
+    from urllib.parse import urlencode
+
+    refresh_token = (creds.get("refresh_token") or "").strip()
+    if not refresh_token:
+        raise RuntimeError("凭证文件缺少 refresh_token，无法自动轮换，请重新 OAuth 登录")
+    dpop_private = (creds.get("dpop_private_key") or "").strip()
+    dpop_public = (creds.get("dpop_public_key") or "").strip()
+    if not dpop_private or not dpop_public:
+        raise RuntimeError("凭证文件缺少 dpop 密钥对，无法轮换（STS 要求初始登录的同一密钥）")
+
+    sts_host = (creds.get("token_host") or "").strip() or DEFAULT_STS_HOST
+    url = sts_host.rstrip("/") + STS_TOKEN_PATH
+    parts = urlsplit(url)
+    if parts.scheme != "https" or not parts.netloc:
+        raise RuntimeError(f"拒绝非 https 的 STS 地址: {url!r}")
+    body = urlencode({
+        "client_id": OAUTH_CLIENT_ID,
+        "code_verifier": (creds.get("code_verifier") or "").strip(),
+        "grant_type": "refresh_token",
+        "refresh_token": refresh_token,
+    }).encode("utf-8")
+
+    try:
+        dpop_jwk = json.loads(dpop_private)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"凭证文件的 dpop_private_key 不是合法 JSON: {e}") from None
+    private_key = _jwk_to_ec_private_key(dpop_jwk)
+    proof = sign_dpop_proof(private_key, dpop_public, "POST", url)
+
+    try:
+        with _urlopen_request(url, "POST", {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+            "DPoP": proof,
+        }, body, timeout) as resp:
+            text = resp.read().decode("utf-8", "replace")
+            status = resp.status
+    except urllib.error.HTTPError as e:
+        status = e.code
+        text = e.read().decode("utf-8", "replace")
+    except Exception as e:
+        raise RuntimeError(f"STS 刷新请求失败: {e}") from None
+
+    try:
+        payload = json.loads(text)
+    except Exception:
+        raise RuntimeError(f"STS 刷新返回非 JSON (HTTP {status}): {text[:200]}") from None
+    if status >= 400:
+        err = payload.get("error") or {}
+        msg = err.get("message") or payload.get("error_msg") or text[:200]
+        raise RuntimeError(f"STS 刷新失败 HTTP {status} {payload.get('error_code') or ''}: {msg}")
+
+    c = payload.get("credentials") or {}
+    ak, sk = (c.get("access_key_id") or "").strip(), (c.get("secret_access_key") or "").strip()
+    if not ak or not sk:
+        raise RuntimeError("STS 刷新响应缺少 credentials")
+
+    creds = dict(creds)
+    creds["access_key"], creds["secret_key"] = ak, sk
+    creds["security_token"] = (c.get("security_token") or "").strip()
+    if payload.get("refresh_token"):
+        creds["refresh_token"] = payload["refresh_token"].strip()
+    exp = (c.get("expiration") or "").strip()
+    creds["expired"] = exp or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return creds
+
+
+def save_credential(creds: dict) -> None:
+    """把轮换后的凭证原子写回原文件（保留其余字段，与 Go 端持久化行为一致）。"""
+    path = Path(creds["_path"])
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        raise RuntimeError(f"回写凭证前读取原文件失败: {path}: {e}") from None
+    for key in ("access_key", "secret_key", "security_token", "refresh_token", "expired"):
+        data[key] = creds.get(key) or ""
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def ensure_fresh_credential(creds: dict, timeout: int) -> dict:
+    """若凭证进入过期窗口（RefreshWindowSeconds=300s）则先刷新再签到。"""
+    expiry = _parse_expiry(creds.get("expired") or "")
+    if expiry <= 0 or time.time() + REFRESH_WINDOW_SECONDS < expiry:
+        return creds
+    print(f"[i] 凭证已过期或进入刷新窗口（expired={creds.get('expired')}），正在通过 STS 轮换…")
+    creds = refresh_credential(creds, timeout)
+    save_credential(creds)
+    print(f"[i] 凭证轮换成功，新过期时间 {creds['expired']}（已写回 {creds['_path']}）")
+    return creds
+
+
+def _urlopen_request(url: str, method: str, headers: dict, body: bytes, timeout: int):
+    """构造请求并发送。url 的 scheme 在进入前强制收敛到 http/https，
+    保证 urllib 不会处理 file:/自定义 scheme。"""
+    import urllib.request
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https") or not parts.netloc:
+        raise RuntimeError(f"拒绝非 http(s) 的 URL scheme: {parts.scheme!r}")
+    data = body if method.upper() != "GET" else None
+    req = urllib.request.Request(url, data=data, headers=headers, method=method.upper())  # noqa: S310
+    return urllib.request.urlopen(req, timeout=timeout)  # noqa: S310
+
+
 # ---------------------------------------------------------------- HTTP
 def _http(method: str, url: str, creds: dict, extra: dict[str, str],
           body: bytes = b"", timeout: int = 15) -> dict:
@@ -168,10 +385,9 @@ def _http(method: str, url: str, creds: dict, extra: dict[str, str],
     req_headers = {k: v for k, v in signed.items() if k.lower() != "host"}
     req_headers.setdefault("Content-Type", "application/json")
 
-    req = urllib.request.Request(url, data=body if method.upper() != "GET" else None,
-                                 headers=req_headers, method=method.upper())
+    # scheme 已在函数入口限制为 http/https，经统一入口发送。
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with _urlopen_request(url, method, req_headers, body, timeout) as resp:
             status = resp.status
             text = resp.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
@@ -205,6 +421,12 @@ def load_credential(auth_file: Path) -> dict:
         "access_key": ak,
         "secret_key": sk,
         "security_token": st,
+        "refresh_token": data.get("refresh_token") or "",
+        "expired": data.get("expired") or "",
+        "code_verifier": data.get("code_verifier") or "",
+        "dpop_private_key": data.get("dpop_private_key") or "",
+        "dpop_public_key": data.get("dpop_public_key") or "",
+        "token_host": data.get("token_host") or "",
         "user_name": data.get("user_name") or "",
         "_path": str(auth_file),
     }
@@ -294,9 +516,10 @@ def _claimable_daily(activities: list[dict]) -> dict | None:
 
 def claim_activity(snap: str, creds: dict, campaign_id: str, timeout: int) -> dict:
     url = f"{snap}{WELFARE_CLAIM_PATH}"
+    idem_key = f"claim_{campaign_id}_{_epoch_millis()}"
     body = json.dumps({
         "campaignId": campaign_id,
-        "idempotentKey": f"claim_{campaign_id}_{int(time.time() * 1000)}",
+        "idempotentKey": idem_key,
         "channel": "DESKTOP",
     }).encode("utf-8")
     r = _http("POST", url, creds, {"Agent-Type": AGENT_TYPE, "X-Language": "zh-cn"},
@@ -367,6 +590,14 @@ def run_one(args: argparse.Namespace, creds: dict) -> int:
     print(f"[i] 账号: {name}")
     snap = args.snap_engine.rstrip("/")
     benefit = args.benefit_api.rstrip("/")
+
+    if not args.no_refresh and creds.get("_path"):
+        try:
+            creds = ensure_fresh_credential(creds, args.timeout)
+        except SystemExit:
+            raise
+        except Exception as e:
+            print(f"[!] 凭证轮换失败，将继续用旧凭证尝试签到: {e}")
 
     if args.action == "balance":
         _show_balance(benefit, creds, args.timeout)
@@ -443,6 +674,8 @@ def main() -> int:
     ap.add_argument("--sk", default=None, help="手动 secret_key")
     ap.add_argument("--st", default=None, help="手动 security_token")
     ap.add_argument("--timeout", type=int, default=15)
+    ap.add_argument("--no-refresh", action="store_true",
+                    help="禁用过期凭证自动轮换（默认开启：签到前若凭证过期则先走 STS refresh）")
     args = ap.parse_args()
 
     if args.ak and args.sk:
