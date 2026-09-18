@@ -34,7 +34,9 @@ docs/*
 !docs/codebuddy-cn-tls-fingerprint.md
 !docs/deepseek-web.md
 !docs/monitoring.md
+!docs/qoder-cn-client-analysis.md
 !docs/scripts/
+!docs/reverse-toolkit/
 AGENTS.md
 CLAUDE.md
 GEMINI.md
@@ -76,3 +78,8 @@ docker-compose.override.yml
 /.playwright-cli/
 /.codegraph/
 /data/
+/rtest/
+
+# Python bytecode
+__pycache__/
+*.py[cod]

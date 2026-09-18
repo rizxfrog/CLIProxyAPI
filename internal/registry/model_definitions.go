@@ -40,6 +40,7 @@ type staticModelsJSON struct {
 	XAI         []*ModelInfo `json:"xai"`
 	Devin       []*ModelInfo `json:"devin"`
 	Trae        []*ModelInfo `json:"trae"`
+	QoderCN     []*ModelInfo `json:"qoder-cn"`
 	Meta        []*ModelInfo `json:"meta"`
 }
 
@@ -265,6 +266,31 @@ func GetXAIModels() []*ModelInfo {
 // GetTraeModels returns the standard TRAE SOLO CN model definitions.
 func GetTraeModels() []*ModelInfo {
 	return cloneModelInfos(getModels().Trae)
+}
+
+// qoderCNBuiltinModels holds the Qoder CN model catalog. The catalog is
+// server-driven via GET /api/v2/model/list?Encode=1, but these identifiers are
+// the ones the official client ships as fallbacks and are used when the remote
+// catalog has not been fetched yet.
+var qoderCNBuiltinModels = []*ModelInfo{
+	{ID: "claude-opus-4-6", DisplayName: "Claude Opus 4.6"},
+	{ID: "claude-opus-4-5", DisplayName: "Claude Opus 4.5"},
+	{ID: "claude-opus-4-1", DisplayName: "Claude Opus 4.1"},
+	{ID: "claude-opus-4-0", DisplayName: "Claude Opus 4"},
+	{ID: "claude-sonnet-4-6", DisplayName: "Claude Sonnet 4.6"},
+	{ID: "claude-sonnet-4-5", DisplayName: "Claude Sonnet 4.5"},
+	{ID: "claude-sonnet-4-0", DisplayName: "Claude Sonnet 4"},
+	{ID: "claude-haiku-4-5", DisplayName: "Claude Haiku 4.5"},
+	{ID: "claude-3-7-sonnet", DisplayName: "Claude 3.7 Sonnet"},
+	{ID: "claude-3-5-sonnet", DisplayName: "Claude 3.5 Sonnet"},
+	{ID: "claude-3-5-haiku", DisplayName: "Claude 3.5 Haiku"},
+	{ID: "qwen3.8-max", DisplayName: "Qwen3.8 Max"},
+	{ID: "qwen-coder", DisplayName: "Qwen Coder"},
+}
+
+// GetQoderCNModels returns the Qoder CN model definitions.
+func GetQoderCNModels() []*ModelInfo {
+	return upsertModelInfos(cloneModelInfos(getModels().QoderCN), qoderCNBuiltinModels...)
 }
 
 // WithCodexBuiltins injects hard-coded Codex-only model definitions that should
@@ -537,6 +563,8 @@ func GetStaticModelDefinitionsByChannel(channel string) []*ModelInfo {
 		return GetXiaohuanxiongModels()
 	case constant.CodeArts:
 		return GetCodeArtsModels()
+	case constant.QoderCN:
+		return GetQoderCNModels()
 	case "antigravity":
 		return GetAntigravityModels()
 	case "xai", "x-ai", "grok":

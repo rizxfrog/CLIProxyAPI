@@ -43,6 +43,11 @@ const codeArtsDefaultBaseURL = "https://snap-access.cn-north-4.myhuaweicloud.com
 
 const traeDefaultBaseURL = "https://trae-api-cn.mchost.guru"
 
+// qoderCNDefaultBaseURL is the Qoder model-server origin used when a
+// qoder-cn-api-key entry does not specify its own base-url. The Qoder CN
+// executor appends "/model/v1/chat/completions" to it.
+const qoderCNDefaultBaseURL = "https://api2-v2.qoder.sh"
+
 // traeDefaultAPIHost is the ExchangeToken / GetUserInfo host used when a
 // trae-api-key entry does not specify its own api-host.
 const traeDefaultAPIHost = "https://api.trae.com.cn"
@@ -95,6 +100,8 @@ func (s *ConfigSynthesizer) Synthesize(ctx *SynthesisContext) ([]*coreauth.Auth,
 	out = append(out, s.synthesizeCodeArtsKeys(ctx)...)
 	// TRAE SOLO CN desktop credentials
 	out = append(out, s.synthesizeTraeKeys(ctx)...)
+	// Qoder CN (qoder.cn / qoder.com.cn) credentials
+	out = append(out, s.synthesizeQoderCNKeys(ctx)...)
 	// Meta API Keys
 	out = append(out, s.synthesizeMetaKeys(ctx)...)
 	// OpenAI-compat
@@ -587,6 +594,67 @@ func (s *ConfigSynthesizer) synthesizeTraeKeys(ctx *SynthesisContext) []*coreaut
 		if len(a.Metadata) == 0 {
 			a.Metadata = nil
 		}
+		out = append(out, a)
+	}
+	return out
+}
+
+// synthesizeQoderCNKeys creates Auth entries for Qoder CN (qoder.cn) credentials.
+//
+// The stored base_url is the model-server origin. The Qoder CN executor appends
+// "/model/v1/chat/completions" to it, correcting for a base URL that already
+// carries that full path.
+func (s *ConfigSynthesizer) synthesizeQoderCNKeys(ctx *SynthesisContext) []*coreauth.Auth {
+	cfg := ctx.Config
+	now := ctx.Now
+	idGen := ctx.IDGenerator
+
+	out := make([]*coreauth.Auth, 0, len(cfg.QoderCNKey))
+	for i := range cfg.QoderCNKey {
+		entry := cfg.QoderCNKey[i]
+		key := strings.TrimSpace(entry.APIKey)
+		if key == "" {
+			continue
+		}
+		baseURL := strings.TrimSpace(entry.BaseURL)
+		if baseURL == "" {
+			baseURL = qoderCNDefaultBaseURL
+		}
+		prefix := strings.TrimSpace(entry.Prefix)
+		id, token := idGen.Next("qoder-cn:apikey", key, baseURL, entry.MachineID)
+		attrs := map[string]string{
+			"source":       fmt.Sprintf("config:qoder-cn[%s]", token),
+			"api_key":      key,
+			"base_url":     baseURL,
+			"config_index": strconv.Itoa(i),
+		}
+		metadata := map[string]any{
+			"type":         "qoder-cn",
+			"auth_kind":    "oauth",
+			"access_token": key,
+			"base_url":     baseURL,
+		}
+		if strings.TrimSpace(entry.RefreshToken) != "" {
+			metadata["refresh_token"] = strings.TrimSpace(entry.RefreshToken)
+		}
+		if strings.TrimSpace(entry.MachineID) != "" {
+			metadata["machine_id"] = strings.TrimSpace(entry.MachineID)
+			attrs["machine_id"] = strings.TrimSpace(entry.MachineID)
+		}
+		if entry.DisableCooling != nil {
+			metadata["disable_cooling"] = *entry.DisableCooling
+		}
+		if entry.Priority != 0 {
+			attrs["priority"] = strconv.Itoa(entry.Priority)
+		}
+		addWeightToAttrs(entry.Weight, attrs)
+		addConfigHeadersToAttrs(entry.Headers, attrs)
+		a := &coreauth.Auth{
+			ID: id, Provider: constant.QoderCN, Label: "qoder-cn-apikey",
+			Prefix: prefix, Status: coreauth.StatusActive, ProxyURL: strings.TrimSpace(entry.ProxyURL),
+			Attributes: attrs, Metadata: metadata, CreatedAt: now, UpdatedAt: now,
+		}
+		ApplyAuthExcludedModelsMeta(a, cfg, entry.ExcludedModels, "apikey")
 		out = append(out, a)
 	}
 	return out

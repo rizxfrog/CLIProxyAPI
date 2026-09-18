@@ -46,6 +46,13 @@ type XiaohuanxiongKey = internalconfig.XiaohuanxiongKey
 type XiaohuanxiongModel = internalconfig.XiaohuanxiongModel
 type CodeArtsKey = internalconfig.CodeArtsKey
 type CodeArtsModel = internalconfig.CodeArtsModel
+
+// QoderCNKey is the Qoder CN (qoder.cn / qoder.com.cn) credential type.
+type QoderCNKey = internalconfig.QoderCNKey
+
+// QoderCNModel is the Qoder CN model mapping type.
+type QoderCNModel = internalconfig.QoderCNModel
+
 type MetaKey = internalconfig.MetaKey
 type MetaModel = internalconfig.MetaModel
 type ClaudeKey = internalconfig.ClaudeKey

@@ -26,6 +26,7 @@ var oauthProviders = []oauthProvider{
 	{"Kimi", "kimi-auth-url", "🟫", true},
 	{"CodeBuddy CN", "codebuddy-cn-auth-url", "🟦", true},
 	{"CodeBuddy AI", "codebuddy-ai-auth-url", "🟦", true},
+	{"Qoder CN", "qoder-cn-auth-url", "🟪", true},
 	{"xAI", "xai-auth-url", "⬛", true},
 	{"Xiaohuanxiong (Raccoon)", "xiaohuanxiong-auth-url", "🦝", false},
 	{"CodeArts (Huawei)", "codearts-auth-url", "🟥", false},

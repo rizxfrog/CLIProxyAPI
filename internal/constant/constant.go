@@ -50,4 +50,11 @@ const (
 	// DPoP flow against Huawei Cloud STS, which returns a temporary AK/SK
 	// credential triple used to sign every subsequent request.
 	CodeArts = "codearts"
+
+	// QoderCN represents the Qoder CN (qoder.cn / qoder.com.cn) provider
+	// identifier. It authenticates with a browser + PKCE device polling flow
+	// (/device/selectAccounts followed by /api/v1/deviceToken/poll), then sends
+	// inference requests to the Qoder model server's OpenAI-compatible
+	// /model/v1/chat/completions endpoint.
+	QoderCN = "qoder-cn"
 )

@@ -323,6 +323,39 @@ func (cfg *Config) SanitizeTraeKeys() {
 	cfg.TraeKey = out
 }
 
+// SanitizeQoderCNKeys normalizes Qoder CN (qoder.cn / qoder.com.cn) credentials.
+func (cfg *Config) SanitizeQoderCNKeys() {
+	if cfg == nil {
+		return
+	}
+	if len(cfg.QoderCNKey) == 0 {
+		return
+	}
+	out := cfg.QoderCNKey[:0]
+	seen := make(map[string]struct{}, len(cfg.QoderCNKey))
+	for i := range cfg.QoderCNKey {
+		entry := &cfg.QoderCNKey[i]
+		entry.APIKey = strings.TrimSpace(entry.APIKey)
+		entry.RefreshToken = strings.TrimSpace(entry.RefreshToken)
+		entry.MachineID = strings.TrimSpace(entry.MachineID)
+		entry.Prefix = normalizeModelPrefix(entry.Prefix)
+		entry.BaseURL = strings.TrimSpace(entry.BaseURL)
+		entry.ProxyURL = strings.TrimSpace(entry.ProxyURL)
+		entry.Headers = NormalizeHeaders(entry.Headers)
+		entry.ExcludedModels = NormalizeExcludedModels(entry.ExcludedModels)
+		if entry.APIKey == "" {
+			continue
+		}
+		uniqueKey := entry.APIKey + "|" + entry.BaseURL
+		if _, exists := seen[uniqueKey]; exists {
+			continue
+		}
+		seen[uniqueKey] = struct{}{}
+		out = append(out, *entry)
+	}
+	cfg.QoderCNKey = out
+}
+
 func sanitizeCodeBuddyStyleKeyEntries(entries []CodeBuddyCNKey) []CodeBuddyCNKey {
 	if len(entries) == 0 {
 		return entries

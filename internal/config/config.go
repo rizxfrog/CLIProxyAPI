@@ -147,6 +147,10 @@ type Config struct {
 
 	// TraeKey defines TRAE SOLO CN desktop credentials.
 	TraeKey []TraeKey `yaml:"trae-api-key" json:"trae-api-key"`
+
+	// QoderCNKey defines Qoder CN (qoder.cn / qoder.com.cn) credentials.
+	QoderCNKey []QoderCNKey `yaml:"qoder-cn-api-key" json:"qoder-cn-api-key"`
+
 	// MetaKey defines Meta API key configurations using the same structure as Codex API keys.
 	MetaKey []MetaKey `yaml:"meta-api-key" json:"meta-api-key"`
 

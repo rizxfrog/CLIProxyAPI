@@ -857,6 +857,56 @@ type CodeBuddyAIKey = CodeBuddyCNKey
 // CodeBuddyAIModel uses the shared static/configured model mapping shape.
 type CodeBuddyAIModel = CodeBuddyCNModel
 
+// QoderCNKey represents a Qoder CN (qoder.cn / qoder.com.cn) credential. The
+// api-key field carries the OAuth access token produced by the browser + PKCE
+// device flow (or a manually pasted bearer token).
+//
+// Requests are sent to the Qoder model server's OpenAI-compatible
+// /model/v1/chat/completions endpoint, which accepts a plain bearer token and
+// does not require the bundled WASM request signature.
+type QoderCNKey struct {
+	// APIKey is the Qoder OAuth access token.
+	APIKey string `yaml:"api-key" json:"api-key"`
+
+	// RefreshToken enables automatic deviceToken/refresh rotation.
+	RefreshToken string `yaml:"refresh-token,omitempty" json:"refresh-token,omitempty"`
+
+	// MachineID is sent as Cosy-MachineId. The official client uses a plain UUID
+	// generated once per install; leaving it empty omits the header.
+	MachineID string `yaml:"machine-id,omitempty" json:"machine-id,omitempty"`
+
+	// Priority controls selection preference when multiple credentials match.
+	Priority int `yaml:"priority,omitempty" json:"priority,omitempty"`
+
+	// Weight controls proportional selection under weighted-round-robin.
+	Weight *int `yaml:"weight,omitempty" json:"weight,omitempty"`
+
+	// Prefix optionally namespaces models for this credential (e.g. "qd/claude-opus-4-6").
+	Prefix string `yaml:"prefix,omitempty" json:"prefix,omitempty"`
+
+	// BaseURL overrides the model-server origin. Defaults to
+	// https://api2-v2.qoder.sh. The executor appends /model/v1/chat/completions.
+	BaseURL string `yaml:"base-url,omitempty" json:"base-url,omitempty"`
+
+	// ProxyURL overrides the global proxy setting for this credential.
+	ProxyURL string `yaml:"proxy-url,omitempty" json:"proxy-url,omitempty"`
+
+	// Models defines upstream model names and aliases for request routing.
+	Models []QoderCNModel `yaml:"models,omitempty" json:"models,omitempty"`
+
+	// Headers optionally adds extra HTTP headers for requests sent with this credential.
+	Headers map[string]string `yaml:"headers,omitempty" json:"headers,omitempty"`
+
+	// ExcludedModels lists model IDs that should be excluded for this provider.
+	ExcludedModels []string `yaml:"excluded-models,omitempty" json:"excluded-models,omitempty"`
+
+	// DisableCooling overrides the global cooling policy for this credential when set.
+	DisableCooling *bool `yaml:"disable-cooling,omitempty" json:"disable-cooling,omitempty"`
+}
+
+// QoderCNModel uses the shared static/configured model mapping shape.
+type QoderCNModel = CodeBuddyCNModel
+
 // TraeKey represents a TRAE SOLO CN desktop credential (Cloud-IDE-JWT +
 // optional refresh token + machine/device identity). The upstream protocol is
 // the desktop solo_work_lite channel at trae-api-cn.mchost.guru.

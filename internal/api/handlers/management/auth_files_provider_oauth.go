@@ -20,9 +20,11 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/auth/codex"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/auth/kimi"
 	metaauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/meta"
+	qodercnauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/qodercn"
 	traeauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/trae"
 	xaiauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/xai"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/constant"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/misc"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/pluginhost"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/util"
@@ -853,6 +855,102 @@ func (h *Handler) RequestKimiToken(c *gin.Context) {
 		response["expires_in"] = deviceFlow.ExpiresIn
 	}
 	c.JSON(200, response)
+}
+
+// RequestQoderCNToken starts Qoder CN browser authorization and polls for
+// tokens. Qoder CN uses a browser + PKCE device polling flow:
+// the user approves in a browser at /device/selectAccounts, and the client polls
+// /api/v1/deviceToken/poll until a token is issued.
+func (h *Handler) RequestQoderCNToken(c *gin.Context) {
+	ctx := PopulateAuthContext(context.Background(), c)
+	client := qodercnauth.NewClient(h.cfg)
+
+	device, errStart := client.StartDeviceFlow(ctx, "")
+	if errStart != nil {
+		log.Errorf("Failed to start Qoder CN authorization: %v", errStart)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start Qoder CN authorization"})
+		return
+	}
+
+	// The poll nonce doubles as the OAuth session key: it is the value the
+	// browser approval binds to, and the value the management UI polls against.
+	session := strings.TrimSpace(device.Nonce)
+	if errState := ValidateOAuthState(session); errState != nil {
+		log.WithError(errState).Error("Qoder CN returned an invalid authorization nonce")
+		c.JSON(http.StatusBadGateway, gin.H{"error": "invalid authorization state"})
+		return
+	}
+	RegisterOAuthSession(session, constant.QoderCN)
+
+	go func() {
+		pollCtx, cancelPoll := context.WithCancel(ctx)
+		defer cancelPoll()
+		go watchOAuthSessionCancel(pollCtx, cancelPoll, session, constant.QoderCN)
+
+		token, errWait := client.WaitForAuthorization(pollCtx, device)
+		if errWait != nil {
+			if !IsOAuthSessionPending(session, constant.QoderCN) {
+				return
+			}
+			log.Errorf("Qoder CN authentication failed: %v", errWait)
+			SetOAuthSessionError(session, oauthSessionErrorWithCause("Authentication failed", errWait))
+			return
+		}
+		if !IsOAuthSessionPending(session, constant.QoderCN) {
+			return
+		}
+
+		metadata := map[string]any{
+			"type":         constant.QoderCN,
+			"auth_kind":    "oauth",
+			"access_token": token.AccessToken,
+			"token_type":   token.TokenType,
+			"base_url":     qodercnauth.ModelBaseURL,
+			"machine_id":   device.MachineID,
+			"timestamp":    time.Now().UnixMilli(),
+		}
+		if strings.TrimSpace(token.RefreshToken) != "" {
+			metadata["refresh_token"] = token.RefreshToken
+		}
+		if token.ExpiresIn > 0 {
+			metadata["expires_in"] = token.ExpiresIn
+		}
+		if !token.ExpiresAt.IsZero() {
+			metadata["expired"] = token.ExpiresAt.UTC().Format(time.RFC3339)
+		}
+
+		fileName := fmt.Sprintf("qoder-cn-%d.json", time.Now().UnixMilli())
+		record := &coreauth.Auth{
+			ID:       fileName,
+			Provider: constant.QoderCN,
+			FileName: fileName,
+			Label:    "Qoder CN",
+			Metadata: metadata,
+			Attributes: map[string]string{
+				coreauth.AttributeAuthKind: coreauth.AuthKindOAuth,
+				"base_url":                 qodercnauth.ModelBaseURL,
+			},
+		}
+		if errGuard := guardOAuthSessionPendingForSave(session, constant.QoderCN); errGuard != nil {
+			return
+		}
+		savedPath, errSave := h.saveTokenRecord(ctx, record)
+		if errSave != nil {
+			log.Errorf("Failed to save Qoder CN token: %v", errSave)
+			SetOAuthSessionError(session, "Failed to save authentication tokens")
+			return
+		}
+		CompleteOAuthSession(session)
+		fmt.Printf("Qoder CN authentication successful! Token saved to %s\n", savedPath)
+	}()
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":     "ok",
+		"url":        device.AuthURL,
+		"state":      session,
+		"flow":       "device",
+		"expires_in": device.ExpiresIn,
+	})
 }
 
 // RequestCodeBuddyCNToken starts CodeBuddy CN browser authorization and polls for tokens.

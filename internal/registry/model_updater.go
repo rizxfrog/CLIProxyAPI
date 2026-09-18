@@ -263,6 +263,7 @@ func detectChangedProviders(oldData, newData *staticModelsJSON) []string {
 		{"deepseek-web", oldData.DeepSeekWeb, newData.DeepSeekWeb},
 		{"xai", oldData.XAI, newData.XAI},
 		{"devin", oldData.Devin, newData.Devin},
+		{"qoder-cn", oldData.QoderCN, newData.QoderCN},
 		{"meta", oldData.Meta, newData.Meta},
 	}
 

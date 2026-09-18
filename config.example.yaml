@@ -757,6 +757,41 @@ nonstream-keepalive-interval: 0
 #   registered by your Trae desktop client, then run a new OAuth login: the login
 #   reuses the configured identity from an unclaimed trae-api-key entry and the
 #   stored auth file can claim rewards normally.
+
+# Qoder CN (qoder.cn / qoder.com.cn) API keys — the Qoder model server's
+# OpenAI-compatible /model/v1/chat/completions endpoint.
+#
+# The api-key is a Qoder OAuth access token. Obtain one with
+# `--qoder-cn-login`, from the TUI OAuth tab, or from the "Qoder CN" entry in the
+# Web UI OAuth page; the login uses a browser + PKCE device polling flow
+# (/device/selectAccounts then /api/v1/deviceToken/poll). Pasting a token copied
+# from a logged-in Qoder CN client also works.
+#
+# Note on the endpoint choice: the official client's default ("legacy") transport
+# posts to /algo/api/v2/service/pro/sse/agent_chat_generation, which requires a
+# request signature produced by the bundled qoder_auth_wasm signer. This provider
+# instead uses the client's "http" model transport, which accepts a plain bearer
+# token and needs no signing.
+# qoder-cn-api-key:
+#   - api-key: "YOUR_QODER_ACCESS_TOKEN"
+#     refresh-token: "YOUR_REFRESH_TOKEN" # optional: enables deviceToken/refresh rotation
+#     machine-id: "00000000-0000-0000-0000-000000000000" # optional: Cosy-MachineId header
+#     weight: 5 # optional: weighted-round-robin share; omitted defaults to 1
+#     prefix: "qd" # optional: require calls like "qd/claude-opus-4-6" to target this credential
+#     base-url: "https://api2-v2.qoder.sh" # optional override (executor appends /model/v1/chat/completions)
+#     headers:
+#       X-Custom-Header: "custom-value"
+#     proxy-url: "socks5://proxy.example.com:1080" # optional: per-key proxy override
+#     models:
+#       - name: "claude-opus-4-6" # upstream model name
+#         alias: "claude-opus-4-6" # client alias mapped to the upstream model
+#         display-name: "Claude Opus 4.6" # optional catalog display name
+#         max-context-length: 200000 # optional: override context window metadata
+#         force-mapping: true # optional: rewrite response model fields back to the alias
+#         thinking: # optional: exact thinking capability for this model
+#           levels: ["low", "medium", "high"]
+#     excluded-models:
+#       - "claude-3-5-sonnet" # exclude specific models (exact match)
 #   Find the DID in Trae logs: [ICDRS] (init) resolve rdid: <numeric-did>
 
 # Claude API keys

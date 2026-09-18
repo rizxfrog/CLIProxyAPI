@@ -232,6 +232,17 @@ func (s *Service) registerModelsForAuthWithCache(ctx context.Context, a *coreaut
 			}
 		}
 		models = applyExcludedModels(models, excluded)
+	case constant.QoderCN:
+		models = registry.GetQoderCNModels()
+		if entry := s.resolveConfigQoderCNKey(a); entry != nil {
+			if len(entry.Models) > 0 {
+				models = buildQoderCNConfigModels(entry)
+			}
+			if authKind == "apikey" {
+				excluded = entry.ExcludedModels
+			}
+		}
+		models = applyExcludedModels(models, excluded)
 	case "devin":
 		models = registry.GetDevinModels()
 		models = applyExcludedModels(models, excluded)
@@ -633,6 +644,43 @@ func (s *Service) resolveConfigMetaKey(auth *coreauth.Auth) *config.MetaKey {
 	return resolveConfigCodexStyleKey(auth, s.cfg.MetaKey, false)
 }
 
+// resolveConfigQoderCNKey finds the configured Qoder CN credential backing an
+// auth entry, so per-credential model mappings and exclusions apply.
+func (s *Service) resolveConfigQoderCNKey(auth *coreauth.Auth) *config.QoderCNKey {
+	if s == nil || s.cfg == nil {
+		return nil
+	}
+	return matchQoderCNConfigKey(auth, s.cfg.QoderCNKey)
+}
+
+func matchQoderCNConfigKey(auth *coreauth.Auth, entries []config.QoderCNKey) *config.QoderCNKey {
+	if auth == nil {
+		return nil
+	}
+	var attrKey, attrBase string
+	if auth.Attributes != nil {
+		attrKey = strings.TrimSpace(auth.Attributes["api_key"])
+		attrBase = strings.TrimSpace(auth.Attributes["base_url"])
+	}
+	matchesCredentials := func(entry *config.QoderCNKey) bool {
+		if entry == nil {
+			return false
+		}
+		cfgKey := strings.TrimSpace(entry.APIKey)
+		cfgBase := strings.TrimSpace(entry.BaseURL)
+		if attrKey != "" {
+			return strings.EqualFold(cfgKey, attrKey) && (cfgBase == "" || strings.EqualFold(cfgBase, attrBase))
+		}
+		return attrBase != "" && strings.EqualFold(cfgBase, attrBase)
+	}
+	for i := range entries {
+		if entry := &entries[i]; matchesCredentials(entry) {
+			return entry
+		}
+	}
+	return nil
+}
+
 func resolveConfigCodexStyleKey(auth *coreauth.Auth, entries []config.CodexKey, validateIndexCredentials bool) *config.CodexKey {
 	if auth == nil {
 		return nil
@@ -999,6 +1047,13 @@ func buildTraeConfigModels(entry *config.TraeKey) []*ModelInfo {
 		return nil
 	}
 	return buildConfigModels(entry.Models, constant.Trae, "openai", constant.Trae)
+}
+
+func buildQoderCNConfigModels(entry *config.QoderCNKey) []*ModelInfo {
+	if entry == nil {
+		return nil
+	}
+	return buildConfigModels(entry.Models, constant.QoderCN, "openai", constant.QoderCN)
 }
 
 func buildCodeBuddyCNConfigModels(entry *config.CodeBuddyCNKey) []*ModelInfo {
