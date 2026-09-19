@@ -225,6 +225,7 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.GET("/codearts-auth-url", s.mgmt.RequestCodeArtsToken)
 		mgmt.POST("/codearts-auth-callback", s.mgmt.PostCodeArtsAuthCallback)
 		mgmt.GET("/codearts-quota", s.mgmt.GetCodeArtsQuota)
+		mgmt.GET("/qoder-cn-quota", s.mgmt.GetQoderCNQuota)
 		mgmt.GET("/meta-auth-url", s.mgmt.RequestMetaToken)
 		mgmt.GET("/get-auth-status", s.mgmt.GetAuthStatus)
 		mgmt.DELETE("/oauth-session", s.mgmt.CancelAuthSession)

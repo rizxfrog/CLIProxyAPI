@@ -17,16 +17,20 @@ func TestQoderCNProviderIsFullyRegistered(t *testing.T) {
 	if len(models) == 0 {
 		t.Fatal("registry.GetQoderCNModels returned no models")
 	}
-	// A canonical model must survive the built-in merge.
+	// The catalog is server-driven and decrypted from the CN CLI's
+	// model_cache_decrypt payload (see the comment on qoderCNBuiltinModels), so the
+	// assertion tracks the canonical free-tier identifier rather than the older
+	// static-analysis names that never appeared in the decrypted catalog.
+	const canonical = "qmodel_38max"
 	found := false
 	for _, m := range models {
-		if m.ID == "claude-opus-4-6" {
+		if m.ID == canonical {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatal("claude-opus-4-6 missing from the Qoder CN catalog")
+		t.Fatalf("%s missing from the Qoder CN catalog", canonical)
 	}
 	// GetStaticModelDefinitionsByChannel must dispatch to the same list.
 	byChannel := registry.GetStaticModelDefinitionsByChannel(constant.QoderCN)

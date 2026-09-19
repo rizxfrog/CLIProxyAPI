@@ -37,6 +37,7 @@ docs/*
 !docs/qoder-cn-client-analysis.md
 !docs/scripts/
 !docs/reverse-toolkit/
+!docs/reverse-note/
 AGENTS.md
 CLAUDE.md
 GEMINI.md

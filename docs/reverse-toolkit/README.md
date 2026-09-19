@@ -25,6 +25,11 @@ unpack ──► fingerprint ──► deobfuscate ──► trace auth ──�
 | Deobfuscate strings | `decode-xor.mjs` | hidden URLs, paths, headers, keys |
 | Embedded binaries | `extract-embedded.mjs` | WASM / ELF / PE / Mach-O blobs |
 | Native analysis | *idalib-mcp* | signing logic, machine identity |
+| **Decrypt model catalog** | `decrypt-catalog.mjs` | WASM-decrypt `~/.qoder/.models/<uid>/catalog-v{5,6}` → plaintext model list+params |
+
+> End-to-end worked example (how the model list + parameters were actually obtained)
+> lives in [`../qoder-cn-model-list-analysis.md`](../qoder-cn-model-list-analysis.md).
+> The decrypted catalog data is in [`qoder-cn-model-catalog.structured.json`](./qoder-cn-model-catalog.structured.json).
 
 ---
 

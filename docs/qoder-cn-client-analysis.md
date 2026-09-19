@@ -95,6 +95,84 @@ OpenAPI (base = `openapi.qoder.com.cn`):
 | `/api/v1/jobToken/exchange` | POST | PAT → job token |
 | `/api/v1/jobToken/refresh` | POST | job token refresh |
 | `/api/v2/user/plan`, `/api/v2/me/usage`, `/api/v2/quota/usage`, `/api/v3/user/status` | GET | plan/quota/status |
+
+### Quota reads (verified live)
+
+`/api/v2/quota/usage` and `/api/v3/user/status` are the two **quota** endpoints,
+and — unlike the model catalog — they are **plain bearer-token GETs**:
+
+```
+GET https://openapi.qoder.com.cn/api/v2/quota/usage
+Authorization: Bearer dt-…      # only this header is required
+```
+
+Verified reachability matrix (probe returned 200 for every combination, so the
+machine identifier and client headers are *not* required here):
+
+| Headers sent | Result |
+|---|---|
+| `Authorization` only | 200 |
+| + `User-Agent: qoder/1.1.55` | 200 |
+| + `Cosy-Version`, `Cosy-ClientType` | 200 |
+| + `Cosy-MachineId` | 200 |
+
+A rejected token answers **401** with a `{code,message}` envelope, not the
+OpenAI `{"error":…}` shape used by the model server:
+
+```json
+{ "code": "TOKEN_EXPIRE", "message": "token is not active", "timestamp": "1789803528159" }
+```
+
+Observed `/api/v2/quota/usage` body (CN **Free** tier, exhausted):
+
+```json
+{
+  "userId": "019f5c18-…", "userType": "personal_standard",
+  "usageType": "credits", "totalUsagePercentage": 0.0,
+  "isQuotaExceeded": true,
+  "expiresAt": 253402214400000,
+  "upgradeUrl": "https://qoder.com.cn/pricing?client=qoder",
+  "outerProviders": [],
+  "userQuota": { "total": 0.0, "used": 0.0, "remaining": 0.0, "percentage": 0.0, "unit": "credits" },
+  "isPlanQuotaProrated": false
+}
+```
+
+Observed `/api/v3/user/status` body (same account):
+
+```json
+{
+  "id": "019f5c18-…", "name": "tyhk84359", "userType": "personal_standard",
+  "quota": 0, "isQuotaExceeded": true,
+  "plan": "PLAN_TIER_FREE", "userTag": "Free",
+  "nextResetAt": 1785166151983, "email": "",
+  "whitelistStatus": "PASS", "isSubAccount": false,
+  "featureSwitches": { "allow_byok": 2 }
+}
+```
+
+Two details that matter when rendering these:
+
+* **`expiresAt` is a sentinel, not a deadline.** `253402214400000` is year 9999
+  (`9999-12-31T00:00:00Z`) and means "never expires"; it must not be shown as a
+  countdown. `nextResetAt` (1785166151983 → 2026-07-27) is the real instant.
+* **`unit` is `credits`**, and a zeroed ledger (`total/used/remaining == 0`) on a
+  Free account is a genuine observation, not missing data — the `isQuotaExceeded`
+  flag is what distinguishes an exhausted account from a failed read.
+
+Contrast with the catalog, which lives on a different surface entirely:
+
+| Route | Result | Why |
+|---|---|---|
+| `openapi.qoder.com.cn/api/v2/model/list?Encode=1` | **503** | route not served on the OpenAPI origin (v2 is otherwise live: `quota/usage` and `user/plan` answer 200 there) |
+| `gateway.qoder.com.cn/algo/api/v2/model/list?Encode=1` | **403** `{"code":"101","message":"Signature invalid"}` | gated by the WASM request signature |
+| `api2-v2.qoder.sh/model/v1/chat/completions` | **401** `{"error":"unauthorized"}` | the stored bearer token is not the credential this host accepts |
+
+So **quota is implementable with the plain token; the model catalog is not** —
+which is why the provider ships a static catalog fallback (see §8) but a live
+quota read.
+
+---
 | `/api/v2/model/list?Encode=1[&outerProviders=…]` | GET | **model catalog** |
 | `/api/v1/webSearch/oneSearch`, `/api/v1/webSearch/unifiedSearch` | POST | web search |
 | `/api/v1/ping`, `/api/v2/tracking`, `/api/v2/spans` | | health/telemetry |
@@ -496,19 +574,30 @@ no MLKEM), which is close to a stock `HelloChrome_*` spec with GREASE removed an
 
 ## 8. Models
 
-Model IDs observed in the catalog/decoded strings (CN catalog is server-driven
-via `/api/v2/model/list`):
+> ⚠️ 旧版“静态推断”模型 ID（`claude-opus-4-6` / `claude-sonnet-4-5` …）是**错的**。
+> 真实目录见 **[qoder-cn-model-list-analysis.md](./qoder-cn-model-list-analysis.md)**（已用官方 CLI 的 WASM 解密 `catalog-v6`，实战可复现）。
+
+The CN model catalog is **server-driven and WASM-encrypted** — it is NOT fetched via
+`GET /api/v2/model/list` (that prefix is unrouted 503 in the observable network, and
+`/algo/*` requires the WASM request signature). The real catalog lives at
+`~/.qoder/.models/<uid>/catalog-v{5,6}`, decrypted with `model_cache_decrypt(fileText, uid)`.
+
+For the **logged-in free account** (UID `019cbe3d-…`), `--list-models` shows only the
+two enabled+free models:
 
 ```text
-claude-opus-4-6, claude-opus-4-5, claude-opus-4-1, claude-opus-4-0,
-claude-sonnet-4-6, claude-sonnet-4-5, claude-sonnet-4-0,
-claude-haiku-4-5, claude-3-7-sonnet, claude-3-5-sonnet, claude-3-5-haiku,
-qwen3.8-max, qwen-coder (promo), qwen-image-2.0-pro,
-"Kimi's latest model …", "Zhipu … GLM …", gemini-embedding-001,
-BYOK: gpt-4o, claude-3-opus examples
+Qwen3.8-Max    (key: qmodel_38max,  format: openai, is_default: true, price_factor: 0.5, max_input: 180K, context: 200K/400K/1M, thinking: low/medium/xhigh)
+Qwen3.8-Flash  (key: qfmodel,       format: openai, is_default: false, price_factor: 0.0, max_input: 180K, context: 200K/400K/1M, thinking: low/medium/xhigh)
 ```
 
-`-m` accepts either a catalog name or a BYOK `key`. `--reasoning-effort` accepts
+Paid / not-enabled tiers present in the same catalog (per-scene): `Sonus` (`smodel`),
+`Cantus` (`cmodel`), `Qwen3.7-Max` (`qmodel_latest`), `Qwen3.7-Plus` (`qmodel`),
+`Kimi-K3` (`kmodel_latest`), `Kimi-K2.8-Preview` (`kmodel`), `GLM-5.3` (`gmodel`),
+`GLM-5.3-Flash`, `DeepSeek-V4-Pro` (`dmodel`), `DeepSeek-Flash`, `MiniMax-M3` (`mmodel`),
+plus aggregate tiers `Auto/Ultimate/Performance/Efficient`. `byok_teams` and
+`byok_enterprise` buckets are empty for this account.
+
+`-m` accepts either a catalog key or a BYOK `key`. `--reasoning-effort` accepts
 `disabled|off|none|low|medium|high|xhigh|max`; `--thinking` accepts
 `auto|adaptive|enabled|disabled`.
 

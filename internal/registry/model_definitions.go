@@ -268,24 +268,28 @@ func GetTraeModels() []*ModelInfo {
 	return cloneModelInfos(getModels().Trae)
 }
 
-// qoderCNBuiltinModels holds the Qoder CN model catalog. The catalog is
-// server-driven via GET /api/v2/model/list?Encode=1, but these identifiers are
-// the ones the official client ships as fallbacks and are used when the remote
-// catalog has not been fetched yet.
+// qoderCNBuiltinModels holds the Qoder CN model catalog fallback. The authoritative
+// catalog is server-driven and WASM-encrypted (~/.qoder/.models/<uid>/catalog-v{5,6},
+// decrypted via qoder_auth_wasm model_cache_decrypt). These identifiers were taken
+// from that decrypted catalog (qodercli 1.1.55) and are used only as offline fallbacks
+// before the remote catalog has been fetched.
+//
+// Free + enabled (what `--list-models` shows for a free account): qmodel_38max,
+// qfmodel. Paid / not-enabled tiers are listed after them for completeness.
 var qoderCNBuiltinModels = []*ModelInfo{
-	{ID: "claude-opus-4-6", DisplayName: "Claude Opus 4.6"},
-	{ID: "claude-opus-4-5", DisplayName: "Claude Opus 4.5"},
-	{ID: "claude-opus-4-1", DisplayName: "Claude Opus 4.1"},
-	{ID: "claude-opus-4-0", DisplayName: "Claude Opus 4"},
-	{ID: "claude-sonnet-4-6", DisplayName: "Claude Sonnet 4.6"},
-	{ID: "claude-sonnet-4-5", DisplayName: "Claude Sonnet 4.5"},
-	{ID: "claude-sonnet-4-0", DisplayName: "Claude Sonnet 4"},
-	{ID: "claude-haiku-4-5", DisplayName: "Claude Haiku 4.5"},
-	{ID: "claude-3-7-sonnet", DisplayName: "Claude 3.7 Sonnet"},
-	{ID: "claude-3-5-sonnet", DisplayName: "Claude 3.5 Sonnet"},
-	{ID: "claude-3-5-haiku", DisplayName: "Claude 3.5 Haiku"},
-	{ID: "qwen3.8-max", DisplayName: "Qwen3.8 Max"},
-	{ID: "qwen-coder", DisplayName: "Qwen Coder"},
+	{ID: "qmodel_38max", DisplayName: "Qwen3.8-Max"},
+	{ID: "qfmodel", DisplayName: "Qwen3.8-Flash"},
+	{ID: "qmodel_latest", DisplayName: "Qwen3.7-Max"},
+	{ID: "qmodel", DisplayName: "Qwen3.7-Plus"},
+	{ID: "kmodel_latest", DisplayName: "Kimi-K3"},
+	{ID: "kmodel", DisplayName: "Kimi-K2.8-Preview"},
+	{ID: "gmodel", DisplayName: "GLM-5.3"},
+	{ID: "gfmodel", DisplayName: "GLM-5.3-Flash"},
+	{ID: "dmodel", DisplayName: "DeepSeek-V4-Pro"},
+	{ID: "dfmodel", DisplayName: "DeepSeek-Flash"},
+	{ID: "mmodel", DisplayName: "MiniMax-M3"},
+	{ID: "smodel", DisplayName: "Sonus"},
+	{ID: "cmodel", DisplayName: "Cantus"},
 }
 
 // GetQoderCNModels returns the Qoder CN model definitions.
