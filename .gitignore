@@ -84,3 +84,7 @@ docker-compose.override.yml
 # Python bytecode
 __pycache__/
 *.py[cod]
+/.codemap/codemap.html
+/.codemap/codemap.md
+/.codemap/config.json
+/.codemap/modules.json
