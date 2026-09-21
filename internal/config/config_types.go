@@ -332,6 +332,24 @@ type RemoteManagement struct {
 	// PanelGitHubRepository overrides the GitHub repository used to fetch the management panel asset.
 	// Accepts either a repository URL (https://github.com/org/repo) or an API releases endpoint.
 	PanelGitHubRepository string `yaml:"panel-github-repository"`
+	// AntiBot configures optional browser-oriented protection for remote management requests.
+	// It never applies to model/API-key request routes.
+	AntiBot ManagementAntiBotConfig `yaml:"anti-bot"`
+}
+
+// ManagementAntiBotConfig configures lightweight risk scoring and rate limiting for
+// remote Management API requests. TLS fingerprints are intentionally not handled here.
+type ManagementAntiBotConfig struct {
+	// Enabled enables protection for non-local Management API clients.
+	Enabled bool `yaml:"enabled"`
+	// MaxRequestsPerMinute limits requests per client IP. Non-positive uses the default.
+	MaxRequestsPerMinute int `yaml:"max-requests-per-minute"`
+	// MaxConcurrent limits in-flight Management API requests per client IP. Non-positive uses the default.
+	MaxConcurrent int `yaml:"max-concurrent"`
+	// BlockScore is the risk score at which a request is rejected. Non-positive uses the default.
+	BlockScore int `yaml:"block-score"`
+	// SuspiciousUserAgents adds case-insensitive User-Agent fragments to the block score.
+	SuspiciousUserAgents []string `yaml:"suspicious-user-agents"`
 }
 
 // QuotaExceeded defines the behavior when API quota limits are exceeded.
