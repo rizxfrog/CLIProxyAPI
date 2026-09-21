@@ -114,6 +114,7 @@ func main() {
 	var codeBuddyCNLogin bool
 	var qoderCNLogin bool
 	var codeBuddyAILogin bool
+	var kimiAILogin bool
 	var xaiLogin bool
 	var devinLogin bool
 	var metaLogin bool
@@ -140,7 +141,8 @@ func main() {
 	flag.BoolVar(&noBrowser, "no-browser", false, "Don't open browser automatically for OAuth")
 	flag.IntVar(&oauthCallbackPort, "oauth-callback-port", 0, "Override OAuth callback port (defaults to provider-specific port)")
 	flag.BoolVar(&antigravityLogin, "antigravity-login", false, "Login to Antigravity using OAuth")
-	flag.BoolVar(&kimiLogin, "kimi-login", false, "Login to Kimi using OAuth")
+	flag.BoolVar(&kimiLogin, "kimi-login", false, "Login to Kimi (.com) using OAuth")
+	flag.BoolVar(&kimiAILogin, "kimi-ai-login", false, "Login to Kimi.ai using OAuth")
 	flag.BoolVar(&codeBuddyCNLogin, "codebuddy-cn-login", false, "Login to CodeBuddy CN using OAuth")
 	flag.BoolVar(&codeBuddyAILogin, "codebuddy-ai-login", false, "Login to CodeBuddy AI (international) using OAuth")
 	flag.BoolVar(&qoderCNLogin, "qoder-cn-login", false, "Login to Qoder CN using OAuth")
@@ -656,7 +658,7 @@ func main() {
 		CallbackPort: oauthCallbackPort,
 	}
 
-	commandMode := vertexImport != "" || antigravityLogin || codexLogin || codexDeviceLogin || claudeLogin || kimiLogin || codeBuddyCNLogin || codeBuddyAILogin || qoderCNLogin || xaiLogin || devinLogin || metaLogin
+	commandMode := vertexImport != "" || antigravityLogin || codexLogin || codexDeviceLogin || claudeLogin || kimiLogin || kimiAILogin || codeBuddyCNLogin || codeBuddyAILogin || qoderCNLogin || xaiLogin || devinLogin || metaLogin
 	cloudConfigMissing := isCloudDeploy && !configFileExists
 	homeMode := configLoadedFromHome || (cfg != nil && cfg.Home.Enabled)
 	exampleAPIKeySafeMode := shouldEnableExampleAPIKeySafeMode(cfg, commandMode, tuiMode, standalone, cloudConfigMissing, homeMode)
@@ -734,6 +736,8 @@ func main() {
 		cmd.DoCodeBuddyAILogin(cfg, options)
 	} else if qoderCNLogin {
 		cmd.DoQoderCNLogin(cfg, options)
+	} else if kimiAILogin {
+		cmd.DoKimiAILogin(cfg, options)
 	} else if xaiLogin {
 		cmd.DoXAILogin(cfg, options)
 	} else if devinLogin {
@@ -954,7 +958,7 @@ func argvEnablesBoolFlag(args []string, name string) bool {
 func argvFlagConsumesValue(name string) bool {
 	switch name {
 	case "codex-login", "codex-device-login", "claude-login", "no-browser",
-		"antigravity-login", "kimi-login", "xai-login", "devin-login",
+		"antigravity-login", "kimi-login", "kimi-ai-login", "xai-login", "devin-login", "meta-login",
 		"discover", "discover-json", "home-disable-cluster-discovery",
 		"tui", "standalone", "local-model":
 		return false

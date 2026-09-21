@@ -215,6 +215,7 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.GET("/codebuddy-cn-auth-url", s.mgmt.RequestCodeBuddyCNToken)
 		mgmt.GET("/codebuddy-ai-auth-url", s.mgmt.RequestCodeBuddyAIToken)
 		mgmt.GET("/qoder-cn-auth-url", s.mgmt.RequestQoderCNToken)
+		mgmt.GET("/kimi-ai-auth-url", s.mgmt.RequestKimiAIToken)
 		mgmt.GET("/xai-auth-url", s.mgmt.RequestXAIToken)
 		mgmt.POST("/web-login/qwen-web", s.mgmt.LoginQwenWeb)
 		mgmt.GET("/trae-auth-url", s.mgmt.RequestTraeToken)

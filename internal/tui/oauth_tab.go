@@ -23,7 +23,8 @@ var oauthProviders = []oauthProvider{
 	{"Claude (Anthropic)", "anthropic-auth-url", "🟧", false},
 	{"Codex (OpenAI)", "codex-auth-url", "🟩", false},
 	{"Antigravity", "antigravity-auth-url", "🟪", false},
-	{"Kimi", "kimi-auth-url", "🟫", true},
+	{"Kimi (kimi.com)", "kimi-auth-url", "🟫", true},
+	{"Kimi (kimi.ai)", "kimi-ai-auth-url", "🟫", true},
 	{"CodeBuddy CN", "codebuddy-cn-auth-url", "🟦", true},
 	{"CodeBuddy AI", "codebuddy-ai-auth-url", "🟦", true},
 	{"Qoder CN", "qoder-cn-auth-url", "🟪", true},
@@ -366,6 +367,8 @@ func (m oauthTabModel) submitCallback(callbackURL string) tea.Cmd {
 					providerKey = "codebuddy-cn"
 				case "codebuddy-ai-auth-url":
 					providerKey = "codebuddy-ai"
+				case "kimi-ai-auth-url":
+					providerKey = "kimi-ai"
 				case "xai-auth-url":
 					providerKey = "xai"
 				case "xiaohuanxiong-auth-url":

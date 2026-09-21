@@ -114,12 +114,50 @@ func ConvertOpenAIResponsesRequestToOpenAIChatCompletions(modelName string, inpu
 			}
 		}
 
+		hasReasoningInSession := false
+		if effortRes := root.Get("reasoning.effort"); effortRes.Exists() {
+			effort := strings.ToLower(strings.TrimSpace(effortRes.String()))
+			if effort != "" && effort != "none" && effort != "0" && effort != "false" {
+				hasReasoningInSession = true
+			}
+		} else if effortRes := root.Get("reasoning_effort"); effortRes.Exists() {
+			effort := strings.ToLower(strings.TrimSpace(effortRes.String()))
+			if effort != "" && effort != "none" && effort != "0" && effort != "false" {
+				hasReasoningInSession = true
+			}
+		} else if reasoningObj := root.Get("reasoning"); reasoningObj.Exists() {
+			reasoningRaw := strings.ToLower(strings.TrimSpace(reasoningObj.String()))
+			if reasoningRaw != "" && reasoningRaw != "none" && reasoningRaw != "false" && reasoningRaw != "{}" {
+				hasReasoningInSession = true
+			}
+		}
+		if !hasReasoningInSession {
+			for _, item := range rawInputArray {
+				itemType := item.Get("type").String()
+				if itemType == "reasoning" || item.Get("reasoning_content").Exists() {
+					hasReasoningInSession = true
+					break
+				}
+			}
+		}
+
 		pendingToolCalls := make([]interface{}, 0)
 		pendingToolCallIDs := make([]string, 0)
 		pendingReasoningContent := ""
+		latestReasoningContent := ""
 		awaitingToolOutputs := make(map[string]struct{})
 		outputCounts := make(map[string]int)
 		mergeableAssistantIndex := -1
+
+		fallbackToolReasoning := func() string {
+			if latestReasoningContent != "" {
+				return latestReasoningContent
+			}
+			if hasReasoningInSession {
+				return "[reasoning unavailable]"
+			}
+			return ""
+		}
 
 		takePendingReasoningContent := func() string {
 			reasoningContent := pendingReasoningContent
@@ -140,6 +178,11 @@ func ConvertOpenAIResponsesRequestToOpenAIChatCompletions(modelName string, inpu
 					combinedReasoning := combineOpenAIResponsesReasoning(assistantMessage.Get("reasoning_content").String(), reasoningContent)
 					if combinedReasoning != "" {
 						updatedMessage, _ = sjson.SetBytes(updatedMessage, "reasoning_content", combinedReasoning)
+						if isUsableResponsesReasoning(combinedReasoning) {
+							latestReasoningContent = combinedReasoning
+						}
+					} else if fallback := fallbackToolReasoning(); fallback != "" {
+						updatedMessage, _ = sjson.SetBytes(updatedMessage, "reasoning_content", fallback)
 					}
 					messages[mergeableAssistantIndex] = updatedMessage
 					mergedIntoAssistant = true
@@ -150,6 +193,11 @@ func ConvertOpenAIResponsesRequestToOpenAIChatCompletions(modelName string, inpu
 				assistantMessage, _ = sjson.SetBytes(assistantMessage, "tool_calls", pendingToolCalls)
 				if reasoningContent != "" {
 					assistantMessage, _ = sjson.SetBytes(assistantMessage, "reasoning_content", reasoningContent)
+					if isUsableResponsesReasoning(reasoningContent) {
+						latestReasoningContent = reasoningContent
+					}
+				} else if fallback := fallbackToolReasoning(); fallback != "" {
+					assistantMessage, _ = sjson.SetBytes(assistantMessage, "reasoning_content", fallback)
 				}
 				appendMessage(assistantMessage)
 			}
@@ -172,6 +220,9 @@ func ConvertOpenAIResponsesRequestToOpenAIChatCompletions(modelName string, inpu
 			reasoningContent := takePendingReasoningContent()
 			if reasoningContent == "" {
 				return
+			}
+			if isUsableResponsesReasoning(reasoningContent) {
+				latestReasoningContent = reasoningContent
 			}
 			message := []byte(`{"role":"assistant","content":"","reasoning_content":""}`)
 			message, _ = sjson.SetBytes(message, "reasoning_content", reasoningContent)
@@ -197,6 +248,7 @@ func ConvertOpenAIResponsesRequestToOpenAIChatCompletions(modelName string, inpu
 				mergeableAssistantIndex = -1
 				if role != "assistant" {
 					appendPendingReasoningMessage()
+					latestReasoningContent = ""
 				}
 				message := []byte(`{"role":"","content":[]}`)
 				message, _ = sjson.SetBytes(message, "role", role)
@@ -235,6 +287,9 @@ func ConvertOpenAIResponsesRequestToOpenAIChatCompletions(modelName string, inpu
 					reasoningContent := combineOpenAIResponsesReasoning(takePendingReasoningContent(), item.Get("reasoning_content").String())
 					if reasoningContent != "" {
 						message, _ = sjson.SetBytes(message, "reasoning_content", reasoningContent)
+						if isUsableResponsesReasoning(reasoningContent) {
+							latestReasoningContent = reasoningContent
+						}
 					}
 				}
 
@@ -246,9 +301,16 @@ func ConvertOpenAIResponsesRequestToOpenAIChatCompletions(modelName string, inpu
 			case "reasoning":
 				reasoningContent := collectOpenAIResponsesReasoningContent(item)
 				pendingReasoningContent = combineOpenAIResponsesReasoning(pendingReasoningContent, reasoningContent)
+				if isUsableResponsesReasoning(reasoningContent) {
+					latestReasoningContent = reasoningContent
+				}
 
 			case "function_call":
-				pendingReasoningContent = combineOpenAIResponsesReasoning(pendingReasoningContent, item.Get("reasoning_content").String())
+				rc := item.Get("reasoning_content").String()
+				pendingReasoningContent = combineOpenAIResponsesReasoning(pendingReasoningContent, rc)
+				if isUsableResponsesReasoning(rc) {
+					latestReasoningContent = rc
+				}
 				// Buffer consecutive function calls and emit them as one assistant message.
 				toolCall := []byte(`{"id":"","type":"function","function":{"name":"","arguments":""}}`)
 
@@ -299,7 +361,11 @@ func ConvertOpenAIResponsesRequestToOpenAIChatCompletions(modelName string, inpu
 				}
 
 			case "custom_tool_call":
-				pendingReasoningContent = combineOpenAIResponsesReasoning(pendingReasoningContent, item.Get("reasoning_content").String())
+				rc := item.Get("reasoning_content").String()
+				pendingReasoningContent = combineOpenAIResponsesReasoning(pendingReasoningContent, rc)
+				if isUsableResponsesReasoning(rc) {
+					latestReasoningContent = rc
+				}
 				// Codex freeform tool call replay: wrap the raw input so it
 				// matches the {"input": string} function shape used when
 				// converting custom tool definitions.
@@ -647,4 +713,9 @@ func combineOpenAIResponsesReasoning(existing, incoming string) string {
 	default:
 		return existing + "\n\n" + incoming
 	}
+}
+
+func isUsableResponsesReasoning(reasoning string) bool {
+	trimmed := strings.TrimSpace(reasoning)
+	return trimmed != "" && trimmed != "[reasoning unavailable]"
 }

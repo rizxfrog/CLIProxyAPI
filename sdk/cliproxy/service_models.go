@@ -152,7 +152,7 @@ func (s *Service) registerModelsForAuthWithCache(ctx context.Context, a *coreaut
 		models = applyExcludedModels(models, excluded)
 	case "qwen-web":
 		models = applyExcludedModels(registry.GetQwenWebModels(), excluded)
-	case "kimi":
+	case "kimi", "kimi-ai", "kimi.ai", "kimi.com":
 		models = registry.GetKimiModels()
 		models = applyExcludedModels(models, excluded)
 	case "codebuddy-cn":

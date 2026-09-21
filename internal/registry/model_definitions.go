@@ -555,7 +555,7 @@ func GetStaticModelDefinitionsByChannel(channel string) []*ModelInfo {
 		return GetAIStudioModels()
 	case "codex":
 		return GetCodexProModels()
-	case "kimi":
+	case "kimi", "kimi-ai", "kimi.ai", "kimi.com":
 		return GetKimiModels()
 	case "codebuddy-cn":
 		return GetCodeBuddyCNModels()
