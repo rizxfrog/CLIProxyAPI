@@ -48,9 +48,23 @@ func TestLiveQuotaUsage(t *testing.T) {
 		t.Fatalf("FetchQuotaUsage: %v", errUsage)
 	}
 	// Log the observable shape, never the token.
-	t.Logf("usage: type=%q unit=%q total=%.4f used=%.4f remaining=%.4f exceeded=%v expiresAt(raw)=%d",
-		usage.UsageType, usage.UserQuota.Unit, usage.UserQuota.Total,
-		usage.UserQuota.Used, usage.UserQuota.Remaining, usage.IsQuotaExceeded, usage.ExpiresAt)
+	t.Logf("plan bucket:   unit=%q total=%.4f used=%.4f remaining=%.4f",
+		usage.UserQuota.Unit, usage.UserQuota.Total, usage.UserQuota.Used, usage.UserQuota.Remaining)
+	if usage.AddOnQuota != nil {
+		t.Logf("addon bucket:  unit=%q total=%.4f used=%.4f remaining=%.4f detailUrl=%q",
+			usage.AddOnQuota.Unit, usage.AddOnQuota.Total, usage.AddOnQuota.Used,
+			usage.AddOnQuota.Remaining, usage.AddOnQuota.DetailURL)
+	}
+	if usage.OrgResourcePackage != nil {
+		t.Logf("org bucket:    total=%.4f used=%.4f remaining=%.4f",
+			usage.OrgResourcePackage.Total, usage.OrgResourcePackage.Used, usage.OrgResourcePackage.Remaining)
+	}
+	for _, pack := range usage.DedicatedResourcePackages {
+		t.Logf("dedicated pack: id=%q name=%q total=%.4f remaining=%.4f available=%v status=%q",
+			pack.ID, pack.Name, pack.Total, pack.Remaining, pack.Available, pack.Status)
+	}
+	t.Logf("usage: type=%q exceeded=%v expiresAt(raw)=%d",
+		usage.UsageType, usage.IsQuotaExceeded, usage.ExpiresAt)
 	if strings.TrimSpace(usage.UserQuota.Unit) == "" {
 		t.Error("ledger carried no unit")
 	}

@@ -1,17 +1,51 @@
 """Offline regression tests; never call the live service."""
+import contextlib
 import io
+import json
+import tempfile
 import unittest
 import urllib.request
 from http.client import HTTPMessage
+from pathlib import Path
 from unittest.mock import patch
 
-from qoder_cn_checkin import CheckinError, NoRedirect, request_json, run
+from qoder_cn_checkin import CheckinError, NoRedirect, main, request_json, run
 
 CREDENTIAL = {"access_token": "test-only-token"}
 CAMPAIGN = {"campaignId": "a/b", "actionType": "CLAIM_BENEFIT", "claimStatus": "CLAIMABLE"}
 
 
 class CheckinTests(unittest.TestCase):
+    @patch('qoder_cn_checkin.run')
+    def test_cli_batch_continues_and_filters(self, runner):
+        runner.return_value = {"dryRun": False, "campaigns": [], "claimed": [], "skipped": [], "errors": []}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'qoder-1.json').write_text('invalid', encoding='utf-8')
+            (root / 'qoder-2.json').write_text(json.dumps(CREDENTIAL), encoding='utf-8')
+            (root / 'other.json').write_text(json.dumps(CREDENTIAL), encoding='utf-8')
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                code = main(['--auth-dir', directory, '--prefix', 'qoder-', '--json'])
+            self.assertEqual(code, 1)
+            self.assertEqual(json.loads(output.getvalue())['summary'],
+                             {'total': 2, 'succeeded': 1, 'failed': 1})
+            runner.assert_called_once_with(CREDENTIAL, claim=True)
+
+    @patch('qoder_cn_checkin.run')
+    def test_cli_status_and_default_action(self, runner):
+        runner.return_value = {"errors": []}
+        for action, expected in [([], True), (['status'], False)]:
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(main(action + ['--token', 'test-token', '--json']), 0)
+            self.assertEqual(runner.call_args.kwargs['claim'], expected)
+
+    def test_cli_invalid_options(self):
+        for args in [['--prefix', 'qoder'], ['status', '--claim', '--token', 'x'],
+                     ['--auth-file', 'x', '--auth-dir', 'y']]:
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                main(args)
+
     def test_query_only(self):
         calls = []
 

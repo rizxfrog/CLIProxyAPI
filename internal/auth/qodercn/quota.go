@@ -9,26 +9,48 @@ import (
 	"strings"
 )
 
-// quotaExpirySentinel is the year cut-off above which an expiresAt millisecond
-// timestamp is treated as "never". The live Free-tier account reports
-// 253402214400000 (9999-12-31), which is a sentinel rather than a real deadline,
-// so it must not surface as a countdown in the console.
-const quotaExpirySentinelYear = 9000
-
-// UserQuota is the credit ledger carried by /api/v2/quota/usage.
+// UserQuota is one credit bucket of the Qoder CN ledger.
+//
+// The same shape is reused for the plan allowance (`userQuota`), the top-up
+// resource pack (`addOnQuota`) and the organization pool
+// (`orgResourcePackage`); only the plan bucket omits `detailUrl`.
 type UserQuota struct {
 	Total      float64 `json:"total"`
 	Used       float64 `json:"used"`
 	Remaining  float64 `json:"remaining"`
 	Percentage float64 `json:"percentage"`
 	Unit       string  `json:"unit"`
+	// DetailURL links to the account usage page. Present on add-on packs only.
+	DetailURL string `json:"detailUrl"`
+}
+
+// ResourcePackage is one personal resource pack from `dedicatedResourcePackages`.
+// Each pack has its own expiry and availability status.
+type ResourcePackage struct {
+	ID         string  `json:"id"`
+	Name       string  `json:"name"`
+	Total      float64 `json:"total"`
+	Used       float64 `json:"used"`
+	Remaining  float64 `json:"remaining"`
+	Percentage float64 `json:"percentage"`
+	Unit       string  `json:"unit"`
+	ExpiresAt  int64   `json:"expiresAt"`
+	Available  bool    `json:"available"`
+	Status     string  `json:"status"`
 }
 
 // QuotaUsage is the payload of GET {openApiBaseUrl}/api/v2/quota/usage.
 //
-// Verified against the CN Free-tier account, which reports usageType "credits"
-// with an exhausted ledger (total/used/remaining all zero) and
-// isQuotaExceeded true.
+// The account's credit entitlement is split across up to three buckets, which is
+// why the console renders more than one meter:
+//
+//	userQuota              — the plan allowance (套餐内 Credits)
+//	addOnQuota             — purchased top-up credits (资源包)
+//	orgResourcePackage     — the shared organization pool
+//	dedicatedResourcePackages — individually expiring personal packs
+//
+// Verified live against the CN account, which reports usageType "credits" with
+// an empty plan bucket (0/0) and a 200-credit add-on pack (0/200).
 type QuotaUsage struct {
 	UserID               string    `json:"userId"`
 	UserType             string    `json:"userType"`
@@ -38,7 +60,15 @@ type QuotaUsage struct {
 	ExpiresAt            int64     `json:"expiresAt"`
 	UpgradeURL           string    `json:"upgradeUrl"`
 	UserQuota            UserQuota `json:"userQuota"`
-	IsPlanQuotaProrated  bool      `json:"isPlanQuotaProrated"`
+	// AddOnQuota is the purchased resource pack. Absent on accounts without one,
+	// so it is a pointer and a missing pack is distinguishable from a zeroed one.
+	AddOnQuota *UserQuota `json:"addOnQuota"`
+	// OrgResourcePackage is the shared organization pool (`orgResourcePackage`),
+	// which upstream also names `shared_quota`.
+	OrgResourcePackage *UserQuota `json:"orgResourcePackage"`
+	// DedicatedResourcePackages are personal packs, each with its own expiry.
+	DedicatedResourcePackages []ResourcePackage `json:"dedicatedResourcePackages"`
+	IsPlanQuotaProrated       bool              `json:"isPlanQuotaProrated"`
 }
 
 // AccountStatus is the subset of GET {openApiBaseUrl}/api/v3/user/status the
