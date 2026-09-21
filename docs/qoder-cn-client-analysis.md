@@ -123,42 +123,74 @@ OpenAI `{"error":…}` shape used by the model server:
 { "code": "TOKEN_EXPIRE", "message": "token is not active", "timestamp": "1789803528159" }
 ```
 
-Observed `/api/v2/quota/usage` body (CN **Free** tier, exhausted):
+Observed `/api/v2/quota/usage` body (CN account, plan bucket empty + one resource pack):
 
 ```json
 {
   "userId": "019f5c18-…", "userType": "personal_standard",
   "usageType": "credits", "totalUsagePercentage": 0.0,
-  "isQuotaExceeded": true,
+  "isQuotaExceeded": false,
   "expiresAt": 253402214400000,
   "upgradeUrl": "https://qoder.com.cn/pricing?client=qoder",
   "outerProviders": [],
-  "userQuota": { "total": 0.0, "used": 0.0, "remaining": 0.0, "percentage": 0.0, "unit": "credits" },
+  "userQuota":  { "total": 0,   "used": 0, "remaining": 0,   "percentage": 0, "unit": "credits" },
+  "addOnQuota": { "total": 200, "used": 0, "remaining": 200, "percentage": 0, "unit": "credits",
+                  "detailUrl": "https://qoder.com.cn/account/usage" },
   "isPlanQuotaProrated": false
 }
 ```
 
-Observed `/api/v3/user/status` body (same account):
+The entitlement is **split across buckets**, which is why the client renders two
+meters (套餐内 Credits and 资源包):
 
-```json
-{
-  "id": "019f5c18-…", "name": "tyhk84359", "userType": "personal_standard",
-  "quota": 0, "isQuotaExceeded": true,
-  "plan": "PLAN_TIER_FREE", "userTag": "Free",
-  "nextResetAt": 1785166151983, "email": "",
-  "whitelistStatus": "PASS", "isSubAccount": false,
-  "featureSwitches": { "allow_byok": 2 }
-}
+| Field | Bucket | Console label |
+|---|---|---|
+| `userQuota` | plan allowance | 套餐内 Credits |
+| `addOnQuota` | purchased top-up pack | 资源包 |
+| `orgResourcePackage` (aka `shared_quota`) | shared organization pool | 组织共享资源包 |
+| `dedicatedResourcePackages[]` | personal packs, each with its own `expiresAt` | 个人专属资源包 |
+
+**`outerProviders` here is unrelated to packs** — it is the model-catalog filter
+the client sends to `/api/v2/model/list?Encode=1&outerProviders=…`, and is always
+empty on the quota response.
+
+There is also a richer, org-gated variant that the client prefers when the
+account has an organization id (its `isUsagePresentationEnabled()` gate is simply
+`getAuthenticatedOrgId()` being non-empty):
+
 ```
+GET https://openapi.qoder.com.cn/sash/api/v2/me/usage
+Authorization: Bearer dt-…
+→ { "displayMode": "qoder", "qoderUsage": { …same bucket schema… } }
+```
+
+It returns the identical bucket schema wrapped in an envelope, plus
+`displayMode: "enterprise"` for org accounts. The plain
+`/api/v2/quota/usage` path is used instead because it is not org-gated and is
+verified reachable on this account.
 
 Two details that matter when rendering these:
 
 * **`expiresAt` is a sentinel, not a deadline.** `253402214400000` is year 9999
   (`9999-12-31T00:00:00Z`) and means "never expires"; it must not be shown as a
   countdown. `nextResetAt` (1785166151983 → 2026-07-27) is the real instant.
-* **`unit` is `credits`**, and a zeroed ledger (`total/used/remaining == 0`) on a
-  Free account is a genuine observation, not missing data — the `isQuotaExceeded`
-  flag is what distinguishes an exhausted account from a failed read.
+* **`unit` is `credits`**, and a zeroed bucket (`total/used/remaining == 0`) is a
+  genuine observation, not missing data. The client's own labels are
+  `套餐内 Credits` for the plan row and `资源包` for a pack row, and both are shown
+  even when zero — that is precisely the card above.
+
+The plan tier and reset instant come from a second read:
+
+```json
+{
+  "id": "019f5c18-…", "name": "tyhk84359", "userType": "personal_standard",
+  "quota": 0, "isQuotaExceeded": false,
+  "plan": "PLAN_TIER_FREE", "userTag": "Free",
+  "nextResetAt": 1785166151983, "email": "",
+  "whitelistStatus": "PASS", "isSubAccount": false,
+  "featureSwitches": { "allow_byok": 2 }
+}
+```
 
 Contrast with the catalog, which lives on a different surface entirely:
 
@@ -171,6 +203,26 @@ Contrast with the catalog, which lives on a different surface entirely:
 So **quota is implementable with the plain token; the model catalog is not** —
 which is why the provider ships a static catalog fallback (see §8) but a live
 quota read.
+
+### Panel/backend version contract
+
+The management panel and this binary ship and update **independently** — the
+panel is published as a release asset and auto-updated via
+`remote-management.panel-github-repository`. The quota payload therefore has to
+stay readable across that skew:
+
+* `rows[]` is the authoritative shape. Each entry is one meter (the plan
+  allowance, then one per resource pack), and it is the only place resource packs
+  are represented.
+* the flat `total` / `used` / `remaining` mirror the **plan-allowance row** for
+  panels that predate the multi-bucket shape. They are display compatibility, not
+  a second source of truth. Omitting them makes an older panel render
+  `额度加载失败: empty_data` instead of a plan-only meter, because such a panel reads
+  only the scalars and rejects a payload that has none.
+
+The two must agree: `TestLiveGetQoderCNQuotaEndToEnd` asserts on the serialized
+bytes that the scalars match `rows[0]`, so a panel showing the scalar meter and a
+card showing the row meter can never disagree.
 
 ---
 | `/api/v2/model/list?Encode=1[&outerProviders=…]` | GET | **model catalog** |

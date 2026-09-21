@@ -18,7 +18,7 @@ Qoder CN desktop 0.2.5
 
 本次此前的实测已提交一次真实领取：活动从 `CLAIMABLE` 变为 `CLAIMED`，用量接口新增 `addOnQuota.total=100, used=0, remaining=100`，`isQuotaExceeded` 从 `true` 变为 `false`。本次归档没有再次提交领取。
 
-脚本：[`../scripts/qoder_cn_checkin.mjs`](../scripts/qoder_cn_checkin.mjs)。默认只查询，显式 `--claim` 才提交。
+脚本：[`../scripts/qoder_cn_checkin.py`](../scripts/qoder_cn_checkin.py)。命令形式与 WorkBuddy 脚本一致：默认 `checkin` 会提交领取，`status` 只查询。
 
 ## 2. 输入、环境与证据位置
 
@@ -229,7 +229,7 @@ GET https://openapi.qoder.com.cn/sash/api/v2/me/usage
 
 ## 6. 脚本使用与行为
 
-Node.js 18+，无第三方依赖。凭证结构：
+Python 3，仅使用标准库（urllib、json、argparse），无需 pip 安装依赖。凭证结构：
 
 ```json
 { "access_token": "<secret>", "machine_id": "<optional>" }
@@ -237,18 +237,29 @@ Node.js 18+，无第三方依赖。凭证结构：
 
 ```bash
 # Query only; no mutation.
-node docs/scripts/qoder_cn_checkin.mjs --auth /absolute/path/to/credential.json
+python3 docs/scripts/qoder_cn_checkin.py status --auth-file /absolute/path/to/credential.json
 
-# Submit claims explicitly.
-node docs/scripts/qoder_cn_checkin.mjs --auth /absolute/path/to/credential.json --claim
+# Default action: query and claim.
+python3 docs/scripts/qoder_cn_checkin.py --auth-file /absolute/path/to/credential.json
 
-# Machine-readable output.
-node docs/scripts/qoder_cn_checkin.mjs --auth /absolute/path/to/credential.json --json
+# Batch claims, sequentially; use a prefix in mixed-provider directories.
+python3 docs/scripts/qoder_cn_checkin.py --auth-dir data/auth_files --prefix qoder-cn-
+
+# Batch status, machine-readable output.
+python3 docs/scripts/qoder_cn_checkin.py status --auth-dir data/auth_files --prefix qoder-cn- --json
+
+# Manual token (prefer files to avoid shell history exposure).
+python3 docs/scripts/qoder_cn_checkin.py status --token "$TOKEN" --machine-id "$MACHINE_ID"
 
 # Offline regression tests.
-node --test docs/scripts/qoder_cn_checkin.test.mjs
+python3 -m unittest discover -s docs/scripts -p 'test_qoder_cn_checkin.py'
 ```
 
+- **默认行为已调整为签到**，只查询必须指定 `status`。`--auth` 是 `--auth-file` 的兼容别名，`--claim` 保留为旧版签到别名，但不能与 `status` 同用。
+- `--auth-file`、`--auth-dir`、`--token` 互斥；未指定时读取 `QODER_CN_AUTH_FILE` 环境变量。不猜测桌面端加密凭证路径。
+- `--auth-dir` 非递归扫描排序后的 `.json` 文件，`--prefix` 按文件名前缀筛选。单文件错误不阻断其他文件；有任意失败整体返回 1。显式标记为其他 provider 的凭证不会发送到 Qoder。
+- JSON 输出为 `accounts` 数组和 `summary`（total/succeeded/failed）。status 查询成功或无可领取活动也计为 succeeded，不表示本次实际领取成功。
+- 不照搬 WorkBuddy 专用的 `uid`、企业头、staging 或任意 endpoint，也不新增请求超时（遵循项目网络超时约束）。
 - 固定 CN OpenAPI host，不使用凭证文件里的模型 `base_url`，不提供任意 host 覆盖以避免误发 token。
 - 拒绝 HTTP 重定向；不输出 token、原始响应 body 或原始网络异常。
 - 不自动刷新 token、不重试 POST、不安装定时任务；401 后应通过现有登录/刷新机制更新凭证。
