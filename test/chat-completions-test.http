@@ -1,6 +1,6 @@
 @Token = sk-test
 @BASE_URL = http://localhost:8317
-@MODEL_ID = qwen3.8-max
+@MODEL_ID = qmodel_38max
 @QWEN_WEB_CHAT = qwen-web-chat
 @QWEN_WEB_IMAGE = qwen-web-image
 

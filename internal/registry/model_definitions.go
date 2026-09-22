@@ -269,32 +269,72 @@ func GetTraeModels() []*ModelInfo {
 }
 
 // qoderCNBuiltinModels holds the Qoder CN model catalog fallback. The authoritative
-// catalog is server-driven and WASM-encrypted (~/.qoder/.models/<uid>/catalog-v{5,6},
-// decrypted via qoder_auth_wasm model_cache_decrypt). These identifiers were taken
-// from that decrypted catalog (qodercli 1.1.55) and are used only as offline fallbacks
-// before the remote catalog has been fetched.
+// catalog is the models.json "qoder-cn" section, which mirrors the server-driven,
+// WASM-encrypted catalog (~/.qoder/.models/<uid>/catalog-v{5,6}, decrypted via
+// qoder_auth_wasm model_cache_decrypt). These identifiers are the offline fallbacks
+// used before that catalog has been loaded, and only fill IDs absent from models.json.
 //
-// Free + enabled (what `--list-models` shows for a free account): qmodel_38max,
-// qfmodel. Paid / not-enabled tiers are listed after them for completeness.
+// The set matches the current CN catalog (qodercli, 2026-09): Auto plus the Qwen,
+// DeepSeek, GLM, Kimi and MiniMax entries shown in the model picker.
 var qoderCNBuiltinModels = []*ModelInfo{
+	{ID: "auto", DisplayName: "Auto"},
 	{ID: "qmodel_38max", DisplayName: "Qwen3.8-Max"},
 	{ID: "qfmodel", DisplayName: "Qwen3.8-Flash"},
 	{ID: "qmodel_latest", DisplayName: "Qwen3.7-Max"},
 	{ID: "qmodel", DisplayName: "Qwen3.7-Plus"},
-	{ID: "kmodel_latest", DisplayName: "Kimi-K3"},
-	{ID: "kmodel", DisplayName: "Kimi-K2.8-Preview"},
-	{ID: "gmodel", DisplayName: "GLM-5.3"},
-	{ID: "gfmodel", DisplayName: "GLM-5.3-Flash"},
+	{ID: "q37fmodel", DisplayName: "Qwen3.7-Flash"},
 	{ID: "dmodel", DisplayName: "DeepSeek-V4-Pro"},
 	{ID: "dfmodel", DisplayName: "DeepSeek-Flash"},
-	{ID: "mmodel", DisplayName: "MiniMax-M3"},
-	{ID: "smodel", DisplayName: "Sonus"},
-	{ID: "cmodel", DisplayName: "Cantus"},
+	{ID: "gmodel", DisplayName: "GLM-5.3"},
+	{ID: "gfmodel", DisplayName: "GLM-5.3-Flash"},
+	{ID: "gm51model", DisplayName: "GLM-5.2"},
+	{ID: "kmodel_latest", DisplayName: "Kimi-K3"},
+	{ID: "kmodel", DisplayName: "Kimi-K2.8-Preview"},
+	{ID: "mmodel", DisplayName: "MiniMax-M2.7"},
 }
 
-// GetQoderCNModels returns the Qoder CN model definitions.
+// GetQoderCNModels returns the Qoder CN model definitions. The models.json
+// "qoder-cn" section is authoritative; the hard-coded identifiers only fill in
+// gaps as an offline fallback before the catalog has been loaded.
 func GetQoderCNModels() []*ModelInfo {
-	return upsertModelInfos(cloneModelInfos(getModels().QoderCN), qoderCNBuiltinModels...)
+	return fillModelGaps(cloneModelInfos(getModels().QoderCN), qoderCNBuiltinModels...)
+}
+
+// fillModelGaps returns models followed by any fallbacks whose ID is not already
+// present (case-insensitive). Existing entries always win, so a richer catalog
+// definition is never shadowed by a minimal hard-coded fallback.
+func fillModelGaps(models []*ModelInfo, fallbacks ...*ModelInfo) []*ModelInfo {
+	if len(fallbacks) == 0 {
+		return models
+	}
+
+	seen := make(map[string]struct{}, len(models))
+	for _, model := range models {
+		if model == nil {
+			continue
+		}
+		id := strings.ToLower(strings.TrimSpace(model.ID))
+		if id != "" {
+			seen[id] = struct{}{}
+		}
+	}
+
+	out := models
+	for _, fallback := range fallbacks {
+		if fallback == nil {
+			continue
+		}
+		id := strings.ToLower(strings.TrimSpace(fallback.ID))
+		if id == "" {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, cloneModelInfo(fallback))
+	}
+	return out
 }
 
 // WithCodexBuiltins injects hard-coded Codex-only model definitions that should
