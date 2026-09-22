@@ -43,10 +43,10 @@ const codeArtsDefaultBaseURL = "https://snap-access.cn-north-4.myhuaweicloud.com
 
 const traeDefaultBaseURL = "https://trae-api-cn.mchost.guru"
 
-// qoderCNDefaultBaseURL is the Qoder model-server origin used when a
-// qoder-cn-api-key entry does not specify its own base-url. The Qoder CN
-// executor appends "/model/v1/chat/completions" to it.
-const qoderCNDefaultBaseURL = "https://api2-v2.qoder.sh"
+// qoderCNDefaultBaseURL is the Qoder agent gateway origin used when a
+// qoder-cn-api-key entry does not specify its own base-url. Inference posts the
+// COSY-signed body to {gateway}/algo/api/v2/service/pro/sse/agent_chat_generation.
+const qoderCNDefaultBaseURL = "https://gateway.qoder.com.cn"
 
 // traeDefaultAPIHost is the ExchangeToken / GetUserInfo host used when a
 // trae-api-key entry does not specify its own api-host.

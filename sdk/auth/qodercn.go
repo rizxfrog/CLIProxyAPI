@@ -16,9 +16,10 @@ import (
 
 var qoderCNRefreshLead = 5 * time.Minute
 
-// qoderCNModelBaseURL is the model-server origin recorded on each Qoder CN auth
-// entry. Inference requests target {base}/model/v1/chat/completions.
-const qoderCNModelBaseURL = qodercn.ModelBaseURL
+// qoderCNModelBaseURL is the agent gateway origin recorded on each Qoder CN auth
+// entry. Inference posts a COSY-signed body to
+// {base}/algo/api/v2/service/pro/sse/agent_chat_generation.
+const qoderCNModelBaseURL = qodercn.GatewayBaseURL
 
 // QoderCNAuthenticator implements the Qoder CN browser + PKCE device polling flow.
 type QoderCNAuthenticator struct{}

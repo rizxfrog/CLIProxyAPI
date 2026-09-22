@@ -49,9 +49,16 @@ const (
 	// TestOpenAPIBaseURL is the test-environment OpenAPI origin.
 	TestOpenAPIBaseURL = "https://test-openapi.qoder.com.cn"
 
+	// GatewayBaseURL is the Qoder CN agent gateway origin hosting the signed
+	// /algo/api/v2/service/pro/sse/agent_chat_generation endpoint. Inference uses
+	// this host with a COSY signature; it is the channel the official CN client's
+	// default transport talks to.
+	GatewayBaseURL = "https://gateway.qoder.com.cn"
+
 	// ModelBaseURL is the Qoder model server origin hosting the OpenAI-compatible
-	// /model/v1/chat/completions endpoint. This is the same host the official CN
-	// CLI uses for its "http" model transport (foc[hP()]).
+	// /model/v1/chat/completions endpoint. This endpoint rejects OAuth device
+	// tokens with 401, so it is retained only for reference; inference goes through
+	// GatewayBaseURL instead.
 	ModelBaseURL = "https://api2-v2.qoder.sh"
 
 	// ClientID is the public OAuth client identifier used by the Qoder CN CLI

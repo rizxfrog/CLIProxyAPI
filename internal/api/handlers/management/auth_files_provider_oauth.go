@@ -942,7 +942,7 @@ func (h *Handler) RequestQoderCNToken(c *gin.Context) {
 			"auth_kind":    "oauth",
 			"access_token": token.AccessToken,
 			"token_type":   token.TokenType,
-			"base_url":     qodercnauth.ModelBaseURL,
+			"base_url":     qodercnauth.GatewayBaseURL,
 			"machine_id":   device.MachineID,
 			"timestamp":    time.Now().UnixMilli(),
 		}
@@ -965,7 +965,7 @@ func (h *Handler) RequestQoderCNToken(c *gin.Context) {
 			Metadata: metadata,
 			Attributes: map[string]string{
 				coreauth.AttributeAuthKind: coreauth.AuthKindOAuth,
-				"base_url":                 qodercnauth.ModelBaseURL,
+				"base_url":                 qodercnauth.GatewayBaseURL,
 			},
 		}
 		if errGuard := guardOAuthSessionPendingForSave(session, constant.QoderCN); errGuard != nil {
