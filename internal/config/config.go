@@ -151,6 +151,9 @@ type Config struct {
 	// QoderCNKey defines Qoder CN (qoder.cn / qoder.com.cn) credentials.
 	QoderCNKey []QoderCNKey `yaml:"qoder-cn-api-key" json:"qoder-cn-api-key"`
 
+	// QoderAIKey defines international Qoder AI (qoder.com / qoder.sh) credentials.
+	QoderAIKey []QoderAIKey `yaml:"qoder-ai-api-key" json:"qoder-ai-api-key"`
+
 	// MetaKey defines Meta API key configurations using the same structure as Codex API keys.
 	MetaKey []MetaKey `yaml:"meta-api-key" json:"meta-api-key"`
 

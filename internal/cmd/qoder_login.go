@@ -13,12 +13,23 @@ import (
 // DoQoderCNLogin starts Qoder CN browser + PKCE device authorization and saves
 // the resulting tokens to the configured auth directory.
 func DoQoderCNLogin(cfg *config.Config, options *LoginOptions) {
+	doQoderLogin(cfg, options, constant.QoderCN, "Qoder CN")
+}
+
+// DoQoderAILogin starts international Qoder AI browser + PKCE device
+// authorization and saves the resulting tokens.
+func DoQoderAILogin(cfg *config.Config, options *LoginOptions) {
+	doQoderLogin(cfg, options, constant.QoderAI, "Qoder AI")
+}
+
+// doQoderLogin runs the shared device-polling login for one Qoder environment.
+func doQoderLogin(cfg *config.Config, options *LoginOptions, provider, label string) {
 	if options == nil {
 		options = &LoginOptions{}
 	}
 	record, savedPath, err := newAuthManager().Login(
 		context.Background(),
-		constant.QoderCN,
+		provider,
 		cfg,
 		&sdkAuth.LoginOptions{
 			NoBrowser: options.NoBrowser,
@@ -27,7 +38,7 @@ func DoQoderCNLogin(cfg *config.Config, options *LoginOptions) {
 		},
 	)
 	if err != nil {
-		log.Errorf("Qoder CN authentication failed: %v", err)
+		log.Errorf("%s authentication failed: %v", label, err)
 		return
 	}
 	if savedPath != "" {
@@ -36,5 +47,5 @@ func DoQoderCNLogin(cfg *config.Config, options *LoginOptions) {
 	if record != nil && record.Label != "" {
 		fmt.Printf("Authenticated as %s\n", record.Label)
 	}
-	fmt.Println("Qoder CN authentication successful!")
+	fmt.Printf("%s authentication successful!\n", label)
 }

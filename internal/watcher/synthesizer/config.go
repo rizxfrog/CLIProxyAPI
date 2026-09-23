@@ -48,6 +48,10 @@ const traeDefaultBaseURL = "https://trae-api-cn.mchost.guru"
 // COSY-signed body to {gateway}/algo/api/v2/service/pro/sse/agent_chat_generation.
 const qoderCNDefaultBaseURL = "https://gateway.qoder.com.cn"
 
+// qoderAIDefaultBaseURL is the international Qoder AI agent gateway origin used
+// when a qoder-ai-api-key entry does not specify its own base-url.
+const qoderAIDefaultBaseURL = "https://api3.qoder.sh"
+
 // traeDefaultAPIHost is the ExchangeToken / GetUserInfo host used when a
 // trae-api-key entry does not specify its own api-host.
 const traeDefaultAPIHost = "https://api.trae.com.cn"
@@ -102,6 +106,7 @@ func (s *ConfigSynthesizer) Synthesize(ctx *SynthesisContext) ([]*coreauth.Auth,
 	out = append(out, s.synthesizeTraeKeys(ctx)...)
 	// Qoder CN (qoder.cn / qoder.com.cn) credentials
 	out = append(out, s.synthesizeQoderCNKeys(ctx)...)
+	out = append(out, s.synthesizeQoderAIKeys(ctx)...)
 	// Meta API Keys
 	out = append(out, s.synthesizeMetaKeys(ctx)...)
 	// OpenAI-compat
@@ -600,36 +605,46 @@ func (s *ConfigSynthesizer) synthesizeTraeKeys(ctx *SynthesisContext) []*coreaut
 }
 
 // synthesizeQoderCNKeys creates Auth entries for Qoder CN (qoder.cn) credentials.
-//
-// The stored base_url is the model-server origin. The Qoder CN executor appends
-// "/model/v1/chat/completions" to it, correcting for a base URL that already
-// carries that full path.
 func (s *ConfigSynthesizer) synthesizeQoderCNKeys(ctx *SynthesisContext) []*coreauth.Auth {
+	return s.synthesizeQoderKeys(ctx, ctx.Config.QoderCNKey, "qoder-cn", constant.QoderCN, qoderCNDefaultBaseURL)
+}
+
+// synthesizeQoderAIKeys creates Auth entries for international Qoder AI
+// (qoder.com / qoder.sh) credentials.
+func (s *ConfigSynthesizer) synthesizeQoderAIKeys(ctx *SynthesisContext) []*coreauth.Auth {
+	return s.synthesizeQoderKeys(ctx, ctx.Config.QoderAIKey, "qoder-ai", constant.QoderAI, qoderAIDefaultBaseURL)
+}
+
+// synthesizeQoderKeys creates Auth entries for one Qoder environment.
+//
+// The stored base_url is the agent gateway origin; the executor posts the
+// COSY-signed body to {base}/algo/api/v2/service/pro/sse/agent_chat_generation.
+func (s *ConfigSynthesizer) synthesizeQoderKeys(ctx *SynthesisContext, entries []config.QoderCNKey, label, provider, defaultBaseURL string) []*coreauth.Auth {
 	cfg := ctx.Config
 	now := ctx.Now
 	idGen := ctx.IDGenerator
 
-	out := make([]*coreauth.Auth, 0, len(cfg.QoderCNKey))
-	for i := range cfg.QoderCNKey {
-		entry := cfg.QoderCNKey[i]
+	out := make([]*coreauth.Auth, 0, len(entries))
+	for i := range entries {
+		entry := entries[i]
 		key := strings.TrimSpace(entry.APIKey)
 		if key == "" {
 			continue
 		}
 		baseURL := strings.TrimSpace(entry.BaseURL)
 		if baseURL == "" {
-			baseURL = qoderCNDefaultBaseURL
+			baseURL = defaultBaseURL
 		}
 		prefix := strings.TrimSpace(entry.Prefix)
-		id, token := idGen.Next("qoder-cn:apikey", key, baseURL, entry.MachineID)
+		id, token := idGen.Next(label+":apikey", key, baseURL, entry.MachineID)
 		attrs := map[string]string{
-			"source":       fmt.Sprintf("config:qoder-cn[%s]", token),
+			"source":       fmt.Sprintf("config:%s[%s]", label, token),
 			"api_key":      key,
 			"base_url":     baseURL,
 			"config_index": strconv.Itoa(i),
 		}
 		metadata := map[string]any{
-			"type":         "qoder-cn",
+			"type":         provider,
 			"auth_kind":    "oauth",
 			"access_token": key,
 			"base_url":     baseURL,
@@ -648,9 +663,12 @@ func (s *ConfigSynthesizer) synthesizeQoderCNKeys(ctx *SynthesisContext) []*core
 			attrs["priority"] = strconv.Itoa(entry.Priority)
 		}
 		addWeightToAttrs(entry.Weight, attrs)
+		if hash := diff.ComputeQoderModelsHash(entry.Models); hash != "" {
+			attrs["models_hash"] = hash
+		}
 		addConfigHeadersToAttrs(entry.Headers, attrs)
 		a := &coreauth.Auth{
-			ID: id, Provider: constant.QoderCN, Label: "qoder-cn-apikey",
+			ID: id, Provider: provider, Label: label + "-apikey",
 			Prefix: prefix, Status: coreauth.StatusActive, ProxyURL: strings.TrimSpace(entry.ProxyURL),
 			Attributes: attrs, Metadata: metadata, CreatedAt: now, UpdatedAt: now,
 		}

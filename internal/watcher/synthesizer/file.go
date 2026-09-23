@@ -221,6 +221,19 @@ func synthesizeFileAuths(ctx *SynthesisContext, fullPath string, data []byte) ([
 		}
 		a.Attributes["base_url"] = baseURL
 	}
+	if provider == constant.QoderCN || provider == constant.QoderAI {
+		a.Attributes[coreauth.AttributeAuthKind] = coreauth.AuthKindOAuth
+		baseURL, _ := metadata["base_url"].(string)
+		baseURL = strings.TrimSpace(baseURL)
+		if baseURL == "" {
+			if provider == constant.QoderAI {
+				baseURL = qoderAIDefaultBaseURL
+			} else {
+				baseURL = qoderCNDefaultBaseURL
+			}
+		}
+		a.Attributes["base_url"] = baseURL
+	}
 	// Read priority from auth file.
 	if rawPriority, ok := metadata["priority"]; ok {
 		switch v := rawPriority.(type) {

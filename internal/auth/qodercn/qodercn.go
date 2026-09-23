@@ -55,6 +55,21 @@ const (
 	// default transport talks to.
 	GatewayBaseURL = "https://gateway.qoder.com.cn"
 
+	// International (Qoder AI) origins. The international product shares the
+	// entire COSY signature, request envelope, device-poll flow and OAuth client
+	// id with the CN build; only the three hosts differ (qoder.com vs qoder.cn,
+	// openapi.qoder.sh vs openapi.qoder.com.cn, api3.qoder.sh vs
+	// gateway.qoder.com.cn).
+
+	// AIAuthBaseURL is the international authentication origin.
+	AIAuthBaseURL = "https://qoder.com"
+	// AIOpenAPIBaseURL is the international OpenAPI origin (device poll, refresh,
+	// account and quota endpoints).
+	AIOpenAPIBaseURL = "https://openapi.qoder.sh"
+	// AIGatewayBaseURL is the international agent gateway origin that hosts the
+	// signed /algo/api/v2/service/pro/sse/agent_chat_generation endpoint.
+	AIGatewayBaseURL = "https://api3.qoder.sh"
+
 	// ModelBaseURL is the Qoder model server origin hosting the OpenAI-compatible
 	// /model/v1/chat/completions endpoint. This endpoint rejects OAuth device
 	// tokens with 401, so it is retained only for reference; inference goes through
@@ -131,6 +146,7 @@ type Client struct {
 	httpClient  *http.Client
 	authBase    string
 	openAPIBase string
+	gatewayBase string
 	clientID    string
 	redirectURI string
 }
@@ -147,6 +163,9 @@ type Options struct {
 	ClientID string
 	// RedirectURI optionally adds a redirect_uri to the authorize request.
 	RedirectURI string
+	// GatewayBaseURL overrides the inference gateway origin (the environment's
+	// default is used when empty).
+	GatewayBaseURL string
 }
 
 // NewClient creates a Qoder CN OAuth client using defaults from cfg.
@@ -157,6 +176,25 @@ func NewClient(cfg *config.Config) *Client {
 // NewClientWithProxyURL creates a client with a per-auth proxy override.
 func NewClientWithProxyURL(cfg *config.Config, proxyURL string) *Client {
 	return NewClientWithOptions(cfg, Options{ProxyURL: proxyURL})
+}
+
+// NewAIClient creates a client for the international (Qoder AI) environment.
+func NewAIClient(cfg *config.Config) *Client {
+	return NewClientWithOptions(cfg, Options{
+		AuthBaseURL:    AIAuthBaseURL,
+		OpenAPIBaseURL: AIOpenAPIBaseURL,
+		GatewayBaseURL: AIGatewayBaseURL,
+	})
+}
+
+// NewAIClientWithProxyURL creates an international client with a per-auth proxy.
+func NewAIClientWithProxyURL(cfg *config.Config, proxyURL string) *Client {
+	return NewClientWithOptions(cfg, Options{
+		ProxyURL:       proxyURL,
+		AuthBaseURL:    AIAuthBaseURL,
+		OpenAPIBaseURL: AIOpenAPIBaseURL,
+		GatewayBaseURL: AIGatewayBaseURL,
+	})
 }
 
 // NewClientWithOptions creates a Qoder CN OAuth client.
@@ -183,13 +221,26 @@ func NewClientWithOptions(cfg *config.Config, opts Options) *Client {
 	if clientID == "" {
 		clientID = ClientID
 	}
+	gatewayBase := strings.TrimSpace(opts.GatewayBaseURL)
+	if gatewayBase == "" {
+		gatewayBase = GatewayBaseURL
+	}
 	return &Client{
 		httpClient:  httpClient,
 		authBase:    strings.TrimRight(authBase, "/"),
 		openAPIBase: strings.TrimRight(openAPIBase, "/"),
+		gatewayBase: strings.TrimRight(gatewayBase, "/"),
 		clientID:    clientID,
 		redirectURI: strings.TrimSpace(opts.RedirectURI),
 	}
+}
+
+// GatewayBase returns the inference gateway origin for this client's environment.
+func (c *Client) GatewayBase() string {
+	if c == nil || strings.TrimSpace(c.gatewayBase) == "" {
+		return GatewayBaseURL
+	}
+	return c.gatewayBase
 }
 
 // StartDeviceFlow builds the browser authorization URL and its PKCE material.

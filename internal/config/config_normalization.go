@@ -328,13 +328,28 @@ func (cfg *Config) SanitizeQoderCNKeys() {
 	if cfg == nil {
 		return
 	}
-	if len(cfg.QoderCNKey) == 0 {
+	cfg.QoderCNKey = sanitizeQoderKeyEntries(cfg.QoderCNKey)
+}
+
+// SanitizeQoderAIKeys normalizes international Qoder AI (qoder.com / qoder.sh)
+// credentials.
+func (cfg *Config) SanitizeQoderAIKeys() {
+	if cfg == nil {
 		return
 	}
-	out := cfg.QoderCNKey[:0]
-	seen := make(map[string]struct{}, len(cfg.QoderCNKey))
-	for i := range cfg.QoderCNKey {
-		entry := &cfg.QoderCNKey[i]
+	cfg.QoderAIKey = sanitizeQoderKeyEntries(cfg.QoderAIKey)
+}
+
+// sanitizeQoderKeyEntries trims, de-duplicates and drops credential-less entries
+// for either Qoder environment.
+func sanitizeQoderKeyEntries(entries []QoderCNKey) []QoderCNKey {
+	if len(entries) == 0 {
+		return entries
+	}
+	out := entries[:0]
+	seen := make(map[string]struct{}, len(entries))
+	for i := range entries {
+		entry := &entries[i]
 		entry.APIKey = strings.TrimSpace(entry.APIKey)
 		entry.RefreshToken = strings.TrimSpace(entry.RefreshToken)
 		entry.MachineID = strings.TrimSpace(entry.MachineID)
@@ -353,7 +368,7 @@ func (cfg *Config) SanitizeQoderCNKeys() {
 		seen[uniqueKey] = struct{}{}
 		out = append(out, *entry)
 	}
-	cfg.QoderCNKey = out
+	return out
 }
 
 func sanitizeCodeBuddyStyleKeyEntries(entries []CodeBuddyCNKey) []CodeBuddyCNKey {

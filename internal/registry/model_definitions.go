@@ -41,6 +41,7 @@ type staticModelsJSON struct {
 	Devin       []*ModelInfo `json:"devin"`
 	Trae        []*ModelInfo `json:"trae"`
 	QoderCN     []*ModelInfo `json:"qoder-cn"`
+	QoderAI     []*ModelInfo `json:"qoder-ai"`
 	Meta        []*ModelInfo `json:"meta"`
 }
 
@@ -298,6 +299,12 @@ var qoderCNBuiltinModels = []*ModelInfo{
 // gaps as an offline fallback before the catalog has been loaded.
 func GetQoderCNModels() []*ModelInfo {
 	return fillModelGaps(cloneModelInfos(getModels().QoderCN), qoderCNBuiltinModels...)
+}
+
+// GetQoderAIModels returns the international Qoder AI model definitions.
+// Qoder AI shares the CN catalog shape, so the same fallback list applies.
+func GetQoderAIModels() []*ModelInfo {
+	return fillModelGaps(cloneModelInfos(getModels().QoderAI), qoderCNBuiltinModels...)
 }
 
 // fillModelGaps returns models followed by any fallbacks whose ID is not already
@@ -609,6 +616,8 @@ func GetStaticModelDefinitionsByChannel(channel string) []*ModelInfo {
 		return GetCodeArtsModels()
 	case constant.QoderCN:
 		return GetQoderCNModels()
+	case constant.QoderAI:
+		return GetQoderAIModels()
 	case "antigravity":
 		return GetAntigravityModels()
 	case "xai", "x-ai", "grok":

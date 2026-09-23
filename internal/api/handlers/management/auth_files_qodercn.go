@@ -8,15 +8,47 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/constant"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/watcher/synthesizer"
 )
 
-// qoderCNKeyWithAuthIndex is a Qoder CN credential plus the live auth index of
-// its synthesized runtime auth entry, so the Web UI can correlate config rows
-// with the running auth pool.
+// qoderCNKeyWithAuthIndex is a Qoder credential plus the live auth index of its
+// synthesized runtime auth entry, so the Web UI can correlate config rows with
+// the running auth pool.
 type qoderCNKeyWithAuthIndex struct {
 	config.QoderCNKey
 	AuthIndex string `json:"auth-index,omitempty"`
+}
+
+// qoderKeyListSpec parameterizes the Qoder CRUD handlers so the CN and
+// international (Qoder AI) environments share identical behavior. The two
+// providers differ only in their config section, auth-index namespace and
+// synthesizer defaults.
+type qoderKeyListSpec struct {
+	provider     string
+	yamlKey      string
+	authIndexKey string
+	get          func(cfg *config.Config) []config.QoderCNKey
+	set          func(cfg *config.Config, entries []config.QoderCNKey)
+	sanitize     func(cfg *config.Config)
+}
+
+var qoderCNKeyListSpec = qoderKeyListSpec{
+	provider:     constant.QoderCN,
+	yamlKey:      "qoder-cn-api-key",
+	authIndexKey: "qoder-cn:apikey",
+	get:          func(cfg *config.Config) []config.QoderCNKey { return cfg.QoderCNKey },
+	set:          func(cfg *config.Config, entries []config.QoderCNKey) { cfg.QoderCNKey = entries },
+	sanitize:     func(cfg *config.Config) { cfg.SanitizeQoderCNKeys() },
+}
+
+var qoderAIKeyListSpec = qoderKeyListSpec{
+	provider:     constant.QoderAI,
+	yamlKey:      "qoder-ai-api-key",
+	authIndexKey: "qoder-ai:apikey",
+	get:          func(cfg *config.Config) []config.QoderCNKey { return cfg.QoderAIKey },
+	set:          func(cfg *config.Config, entries []config.QoderCNKey) { cfg.QoderAIKey = entries },
+	sanitize:     func(cfg *config.Config) { cfg.SanitizeQoderAIKeys() },
 }
 
 // Compile-time guard: the management routes in server_management.go reference
@@ -28,9 +60,13 @@ var (
 	_ func(*Handler, *gin.Context) = (*Handler).PutQoderCNKeys
 	_ func(*Handler, *gin.Context) = (*Handler).PatchQoderCNKey
 	_ func(*Handler, *gin.Context) = (*Handler).DeleteQoderCNKey
+	_ func(*Handler, *gin.Context) = (*Handler).GetQoderAIKeys
+	_ func(*Handler, *gin.Context) = (*Handler).PutQoderAIKeys
+	_ func(*Handler, *gin.Context) = (*Handler).PatchQoderAIKey
+	_ func(*Handler, *gin.Context) = (*Handler).DeleteQoderAIKey
 )
 
-// normalizeQoderCNKey trims and normalizes one Qoder CN credential.
+// normalizeQoderCNKey trims and normalizes one Qoder credential.
 func normalizeQoderCNKey(entry *config.QoderCNKey) {
 	if entry == nil {
 		return
@@ -65,8 +101,8 @@ func normalizeQoderCNKey(entry *config.QoderCNKey) {
 	entry.Models = out
 }
 
-// qoderCNKeysWithAuthIndex decorates each credential with its live auth index.
-func (h *Handler) qoderCNKeysWithAuthIndex() []qoderCNKeyWithAuthIndex {
+// qoderKeysWithAuthIndex decorates each credential with its live auth index.
+func (h *Handler) qoderKeysWithAuthIndex(spec qoderKeyListSpec) []qoderCNKeyWithAuthIndex {
 	if h == nil {
 		return nil
 	}
@@ -79,13 +115,13 @@ func (h *Handler) qoderCNKeysWithAuthIndex() []qoderCNKeyWithAuthIndex {
 	}
 
 	idGen := synthesizer.NewStableIDGenerator()
-	entries := h.cfg.QoderCNKey
+	entries := spec.get(h.cfg)
 	out := make([]qoderCNKeyWithAuthIndex, len(entries))
 	for i := range entries {
 		entry := entries[i]
 		authIndex := ""
 		if key := strings.TrimSpace(entry.APIKey); key != "" {
-			id, _ := idGen.Next("qoder-cn:apikey", key, entry.BaseURL, entry.MachineID)
+			id, _ := idGen.Next(spec.authIndexKey, key, entry.BaseURL, entry.MachineID)
 			authIndex = liveIndexByID[id]
 		}
 		out[i] = qoderCNKeyWithAuthIndex{QoderCNKey: entry, AuthIndex: authIndex}
@@ -95,11 +131,25 @@ func (h *Handler) qoderCNKeysWithAuthIndex() []qoderCNKeyWithAuthIndex {
 
 // qoder-cn-api-key: []QoderCNKey
 func (h *Handler) GetQoderCNKeys(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"qoder-cn-api-key": h.qoderCNKeysWithAuthIndex()})
+	c.JSON(http.StatusOK, gin.H{qoderCNKeyListSpec.yamlKey: h.qoderKeysWithAuthIndex(qoderCNKeyListSpec)})
+}
+
+// qoder-ai-api-key: []QoderAIKey
+func (h *Handler) GetQoderAIKeys(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{qoderAIKeyListSpec.yamlKey: h.qoderKeysWithAuthIndex(qoderAIKeyListSpec)})
 }
 
 // PutQoderCNKeys replaces the full Qoder CN credential list.
 func (h *Handler) PutQoderCNKeys(c *gin.Context) {
+	h.putQoderKeys(c, qoderCNKeyListSpec)
+}
+
+// PutQoderAIKeys replaces the full international Qoder AI credential list.
+func (h *Handler) PutQoderAIKeys(c *gin.Context) {
+	h.putQoderKeys(c, qoderAIKeyListSpec)
+}
+
+func (h *Handler) putQoderKeys(c *gin.Context, spec qoderKeyListSpec) {
 	data, errRead := c.GetRawData()
 	if errRead != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read body"})
@@ -124,7 +174,7 @@ func (h *Handler) PutQoderCNKeys(c *gin.Context) {
 		if entry.APIKey == "" {
 			continue
 		}
-		if rejectInvalidCredentialWeight(c, fmt.Sprintf("qoder-cn-api-key[%d].weight", i), entry.Weight) {
+		if rejectInvalidCredentialWeight(c, fmt.Sprintf("%s[%d].weight", spec.yamlKey, i), entry.Weight) {
 			return
 		}
 		filtered = append(filtered, entry)
@@ -132,12 +182,12 @@ func (h *Handler) PutQoderCNKeys(c *gin.Context) {
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.cfg.QoderCNKey = filtered
-	h.cfg.SanitizeQoderCNKeys()
+	spec.set(h.cfg, filtered)
+	spec.sanitize(h.cfg)
 	h.persistLocked(c)
 }
 
-// qoderCNKeyPatch is the PATCH body for one Qoder CN credential.
+// qoderCNKeyPatch is the PATCH body for one Qoder credential.
 type qoderCNKeyPatch struct {
 	APIKey         *string                `json:"api-key"`
 	RefreshToken   *string                `json:"refresh-token"`
@@ -155,6 +205,15 @@ type qoderCNKeyPatch struct {
 
 // PatchQoderCNKey updates one Qoder CN credential selected by index or api-key.
 func (h *Handler) PatchQoderCNKey(c *gin.Context) {
+	h.patchQoderKey(c, qoderCNKeyListSpec)
+}
+
+// PatchQoderAIKey updates one international Qoder AI credential.
+func (h *Handler) PatchQoderAIKey(c *gin.Context) {
+	h.patchQoderKey(c, qoderAIKeyListSpec)
+}
+
+func (h *Handler) patchQoderKey(c *gin.Context, spec qoderKeyListSpec) {
 	var body struct {
 		Index *int             `json:"index"`
 		Match *string          `json:"match"`
@@ -167,7 +226,7 @@ func (h *Handler) PatchQoderCNKey(c *gin.Context) {
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	entries := h.cfg.QoderCNKey
+	entries := spec.get(h.cfg)
 	targetIndex := -1
 	if body.Index != nil && *body.Index >= 0 && *body.Index < len(entries) {
 		targetIndex = *body.Index
@@ -231,16 +290,25 @@ func (h *Handler) PatchQoderCNKey(c *gin.Context) {
 
 	normalizeQoderCNKey(&entry)
 	entries[targetIndex] = entry
-	h.cfg.QoderCNKey = entries
-	h.cfg.SanitizeQoderCNKeys()
+	spec.set(h.cfg, entries)
+	spec.sanitize(h.cfg)
 	h.persistLocked(c)
 }
 
 // DeleteQoderCNKey removes one Qoder CN credential.
 func (h *Handler) DeleteQoderCNKey(c *gin.Context) {
+	h.deleteQoderKey(c, qoderCNKeyListSpec)
+}
+
+// DeleteQoderAIKey removes one international Qoder AI credential.
+func (h *Handler) DeleteQoderAIKey(c *gin.Context) {
+	h.deleteQoderKey(c, qoderAIKeyListSpec)
+}
+
+func (h *Handler) deleteQoderKey(c *gin.Context, spec qoderKeyListSpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	entries := h.cfg.QoderCNKey
+	entries := spec.get(h.cfg)
 
 	if val := strings.TrimSpace(c.Query("api-key")); val != "" {
 		out := make([]config.QoderCNKey, 0, len(entries))
@@ -256,7 +324,7 @@ func (h *Handler) DeleteQoderCNKey(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "item not found"})
 			return
 		}
-		h.cfg.QoderCNKey = out
+		spec.set(h.cfg, out)
 		h.persistLocked(c)
 		return
 	}
@@ -271,6 +339,6 @@ func (h *Handler) DeleteQoderCNKey(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "index out of range"})
 		return
 	}
-	h.cfg.QoderCNKey = append(append([]config.QoderCNKey(nil), entries[:index]...), entries[index+1:]...)
+	spec.set(h.cfg, append(append([]config.QoderCNKey(nil), entries[:index]...), entries[index+1:]...))
 	h.persistLocked(c)
 }

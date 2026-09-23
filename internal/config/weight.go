@@ -180,6 +180,11 @@ func (cfg *Config) ValidateCredentialWeights() error {
 			return fmt.Errorf("qoder-cn-api-key[%d].weight: %w", index, errValidate)
 		}
 	}
+	for index := range cfg.QoderAIKey {
+		if errValidate := ValidateCredentialWeight(cfg.QoderAIKey[index].Weight); errValidate != nil {
+			return fmt.Errorf("qoder-ai-api-key[%d].weight: %w", index, errValidate)
+		}
+	}
 	for providerIndex := range cfg.OpenAICompatibility {
 		for keyIndex := range cfg.OpenAICompatibility[providerIndex].APIKeyEntries {
 			weight := cfg.OpenAICompatibility[providerIndex].APIKeyEntries[keyIndex].Weight

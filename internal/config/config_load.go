@@ -192,6 +192,9 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	// Sanitize Qoder CN keys: drop entries without an access token.
 	cfg.SanitizeQoderCNKeys()
 
+	// Sanitize international Qoder AI keys.
+	cfg.SanitizeQoderAIKeys()
+
 	// Sanitize Meta keys.
 	cfg.SanitizeMetaKeys()
 

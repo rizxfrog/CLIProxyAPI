@@ -113,6 +113,7 @@ func main() {
 	var kimiLogin bool
 	var codeBuddyCNLogin bool
 	var qoderCNLogin bool
+	var qoderAILogin bool
 	var codeBuddyAILogin bool
 	var kimiAILogin bool
 	var xaiLogin bool
@@ -146,6 +147,7 @@ func main() {
 	flag.BoolVar(&codeBuddyCNLogin, "codebuddy-cn-login", false, "Login to CodeBuddy CN using OAuth")
 	flag.BoolVar(&codeBuddyAILogin, "codebuddy-ai-login", false, "Login to CodeBuddy AI (international) using OAuth")
 	flag.BoolVar(&qoderCNLogin, "qoder-cn-login", false, "Login to Qoder CN using OAuth")
+	flag.BoolVar(&qoderAILogin, "qoder-ai-login", false, "Login to Qoder AI (international) using OAuth")
 	flag.BoolVar(&xaiLogin, "xai-login", false, "Login to xAI using OAuth")
 	flag.BoolVar(&devinLogin, "devin-login", false, "Login to Devin using OAuth")
 	flag.BoolVar(&metaLogin, "meta-login", false, "Login to Meta using OAuth")
@@ -658,7 +660,7 @@ func main() {
 		CallbackPort: oauthCallbackPort,
 	}
 
-	commandMode := vertexImport != "" || antigravityLogin || codexLogin || codexDeviceLogin || claudeLogin || kimiLogin || kimiAILogin || codeBuddyCNLogin || codeBuddyAILogin || qoderCNLogin || xaiLogin || devinLogin || metaLogin
+	commandMode := vertexImport != "" || antigravityLogin || codexLogin || codexDeviceLogin || claudeLogin || kimiLogin || kimiAILogin || codeBuddyCNLogin || codeBuddyAILogin || qoderCNLogin || qoderAILogin || xaiLogin || devinLogin || metaLogin
 	cloudConfigMissing := isCloudDeploy && !configFileExists
 	homeMode := configLoadedFromHome || (cfg != nil && cfg.Home.Enabled)
 	exampleAPIKeySafeMode := shouldEnableExampleAPIKeySafeMode(cfg, commandMode, tuiMode, standalone, cloudConfigMissing, homeMode)
@@ -736,6 +738,8 @@ func main() {
 		cmd.DoCodeBuddyAILogin(cfg, options)
 	} else if qoderCNLogin {
 		cmd.DoQoderCNLogin(cfg, options)
+	} else if qoderAILogin {
+		cmd.DoQoderAILogin(cfg, options)
 	} else if kimiAILogin {
 		cmd.DoKimiAILogin(cfg, options)
 	} else if xaiLogin {

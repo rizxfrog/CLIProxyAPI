@@ -768,8 +768,8 @@ nonstream-keepalive-interval: 0
 #   reuses the configured identity from an unclaimed trae-api-key entry and the
 #   stored auth file can claim rewards normally.
 
-# Qoder CN (qoder.cn / qoder.com.cn) API keys — the Qoder model server's
-# OpenAI-compatible /model/v1/chat/completions endpoint.
+# Qoder CN (qoder.cn / qoder.com.cn) API keys — the Qoder agent gateway's
+# COSY-signed /algo/api/v2/service/pro/sse/agent_chat_generation endpoint.
 #
 # The api-key is a Qoder OAuth access token. Obtain one with
 # `--qoder-cn-login`, from the TUI OAuth tab, or from the "Qoder CN" entry in the
@@ -777,31 +777,50 @@ nonstream-keepalive-interval: 0
 # (/device/selectAccounts then /api/v1/deviceToken/poll). Pasting a token copied
 # from a logged-in Qoder CN client also works.
 #
-# Note on the endpoint choice: the official client's default ("legacy") transport
-# posts to /algo/api/v2/service/pro/sse/agent_chat_generation, which requires a
-# request signature produced by the bundled qoder_auth_wasm signer. This provider
-# instead uses the client's "http" model transport, which accepts a plain bearer
-# token and needs no signing.
+# Note on the endpoint: the OpenAI-compatible model/v1/chat/completions endpoint
+# rejects OAuth device tokens with 401, so inference uses the same signed
+# transport as the official client. The executor reproduces the qoder_auth_wasm
+# COSY request signature (Authorization: Bearer COSY.<payload>.<md5>) and posts
+# to /algo/api/v2/service/pro/sse/agent_chat_generation on gateway.qoder.com.cn.
+# The account identity (uid/name) is resolved from the OpenAPI userinfo/status
+# endpoints on first use and cached on the credential.
 # qoder-cn-api-key:
 #   - api-key: "YOUR_QODER_ACCESS_TOKEN"
 #     refresh-token: "YOUR_REFRESH_TOKEN" # optional: enables deviceToken/refresh rotation
 #     machine-id: "00000000-0000-0000-0000-000000000000" # optional: Cosy-MachineId header
 #     weight: 5 # optional: weighted-round-robin share; omitted defaults to 1
-#     prefix: "qd" # optional: require calls like "qd/claude-opus-4-6" to target this credential
-#     base-url: "https://api2-v2.qoder.sh" # optional override (executor appends /model/v1/chat/completions)
+#     prefix: "qd"  # optional, e.g. qd/qmodel_38max
+#     base-url: "https://gateway.qoder.com.cn"  # optional gateway override
 #     headers:
 #       X-Custom-Header: "custom-value"
 #     proxy-url: "socks5://proxy.example.com:1080" # optional: per-key proxy override
 #     models:
-#       - name: "claude-opus-4-6" # upstream model name
-#         alias: "claude-opus-4-6" # client alias mapped to the upstream model
-#         display-name: "Claude Opus 4.6" # optional catalog display name
+#       - name: "qmodel_38max" # upstream model key
+#         alias: "qmodel_38max" # client alias mapped to the upstream model
+#         display-name: "Qwen3.8-Max" # optional catalog display name
 #         max-context-length: 200000 # optional: override context window metadata
 #         force-mapping: true # optional: rewrite response model fields back to the alias
 #         thinking: # optional: exact thinking capability for this model
 #           levels: ["low", "medium", "high"]
 #     excluded-models:
 #       - "claude-3-5-sonnet" # exclude specific models (exact match)
+
+# Qoder AI (international: qoder.com / qoder.sh) API keys — the international
+# agent gateway's COSY-signed agent_chat_generation endpoint (api3.qoder.sh).
+#
+# The credential shape, device polling flow and request signature are identical
+# to Qoder CN; only the hosts and account system differ. Obtain a token with
+# `--qoder-ai-login`, the TUI OAuth tab ("Qoder AI"), or the Web UI OAuth page.
+# The OpenAPI origin for identity/quota reads is openapi.qoder.sh.
+# qoder-ai-api-key:
+#   - api-key: "YOUR_QODER_ACCESS_TOKEN"
+#     refresh-token: "YOUR_REFRESH_TOKEN"  # enables token rotation
+#     machine-id: "00000000-0000-0000-0000-000000000000"  # optional
+#     weight: 5  # optional weighted-round-robin share; default 1
+#     prefix: "qdai"  # optional, e.g. qdai/qmodel_38max
+#     base-url: "https://api3.qoder.sh"  # optional gateway override
+#     proxy-url: "socks5://proxy.example.com:1080"  # optional
+
 #   Find the DID in Trae logs: [ICDRS] (init) resolve rdid: <numeric-did>
 
 # Claude API keys

@@ -54,7 +54,13 @@ const (
 	// QoderCN represents the Qoder CN (qoder.cn / qoder.com.cn) provider
 	// identifier. It authenticates with a browser + PKCE device polling flow
 	// (/device/selectAccounts followed by /api/v1/deviceToken/poll), then sends
-	// inference requests to the Qoder model server's OpenAI-compatible
-	// /model/v1/chat/completions endpoint.
+	// COSY-signed inference requests to the Qoder agent gateway's
+	// /algo/api/v2/service/pro/sse/agent_chat_generation endpoint.
 	QoderCN = "qoder-cn"
+
+	// QoderAI represents the Qoder AI (international: qoder.com / qoder.sh)
+	// provider identifier. It shares the entire device-poll flow, COSY signature
+	// and request envelope with Qoder CN; only the hosts and account system
+	// differ.
+	QoderAI = "qoder-ai"
 )

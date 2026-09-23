@@ -53,6 +53,12 @@ type QoderCNKey = internalconfig.QoderCNKey
 // QoderCNModel is the Qoder CN model mapping type.
 type QoderCNModel = internalconfig.QoderCNModel
 
+// QoderAIKey is the international Qoder AI (qoder.com / qoder.sh) credential type.
+type QoderAIKey = internalconfig.QoderAIKey
+
+// QoderAIModel is the international Qoder AI model mapping type.
+type QoderAIModel = internalconfig.QoderAIModel
+
 type MetaKey = internalconfig.MetaKey
 type MetaModel = internalconfig.MetaModel
 type ClaudeKey = internalconfig.ClaudeKey

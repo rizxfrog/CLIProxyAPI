@@ -413,7 +413,7 @@ func requestToFormat(provider string, executor ProviderExecutor, req cliproxyexe
 		return sdktranslator.FormatGemini
 	case "kimi", "kimi-ai", "kimi.ai", "kimi.com":
 		return sdktranslator.FormatOpenAI
-	case "codebuddy-cn", "deepseek-web", "codebuddy-ai", "xiaohuanxiong":
+	case "codebuddy-cn", "deepseek-web", "codebuddy-ai", "xiaohuanxiong", "qoder-cn", "qoder-ai":
 		return sdktranslator.FormatOpenAI
 	case "meta":
 		return sdktranslator.FormatCodex

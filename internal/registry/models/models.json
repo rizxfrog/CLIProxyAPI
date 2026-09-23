@@ -6079,5 +6079,325 @@
         "text"
       ]
     }
+  ],
+  "qoder-ai": [
+    {
+      "id": "auto",
+      "object": "model",
+      "created": 1788220800,
+      "owned_by": "qoder",
+      "type": "qoder-cn",
+      "display_name": "Auto",
+      "description": "Auto via Qoder AI (0.5×)",
+      "context_length": 180000,
+      "supportedInputModalities": [
+        "text",
+        "image"
+      ],
+      "supportedOutputModalities": [
+        "text"
+      ]
+    },
+    {
+      "id": "qmodel_38max",
+      "object": "model",
+      "created": 1788220800,
+      "owned_by": "qoder",
+      "type": "qoder-cn",
+      "display_name": "Qwen3.8-Max",
+      "description": "Qwen3.8-Max via Qoder AI (0.5×)",
+      "context_length": 180000,
+      "thinking": {
+        "zero_allowed": true,
+        "levels": [
+          "low",
+          "medium",
+          "xhigh"
+        ]
+      },
+      "supportedInputModalities": [
+        "text",
+        "image"
+      ],
+      "supportedOutputModalities": [
+        "text"
+      ]
+    },
+    {
+      "id": "qfmodel",
+      "object": "model",
+      "created": 1788220800,
+      "owned_by": "qoder",
+      "type": "qoder-cn",
+      "display_name": "Qwen3.8-Flash",
+      "description": "Qwen3.8-Flash via Qoder AI (0×)",
+      "context_length": 180000,
+      "thinking": {
+        "zero_allowed": true,
+        "levels": [
+          "low",
+          "medium",
+          "xhigh"
+        ]
+      },
+      "supportedInputModalities": [
+        "text",
+        "image"
+      ],
+      "supportedOutputModalities": [
+        "text"
+      ]
+    },
+    {
+      "id": "qmodel_latest",
+      "object": "model",
+      "created": 1788220800,
+      "owned_by": "qoder",
+      "type": "qoder-cn",
+      "display_name": "Qwen3.7-Max",
+      "description": "Qwen3.7-Max via Qoder AI (0.5×)",
+      "context_length": 180000,
+      "thinking": {
+        "zero_allowed": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "supportedInputModalities": [
+        "text",
+        "image"
+      ],
+      "supportedOutputModalities": [
+        "text"
+      ]
+    },
+    {
+      "id": "qmodel",
+      "object": "model",
+      "created": 1788220800,
+      "owned_by": "qoder",
+      "type": "qoder-cn",
+      "display_name": "Qwen3.7-Plus",
+      "description": "Qwen3.7-Plus via Qoder AI (0.1×)",
+      "context_length": 180000,
+      "thinking": {
+        "zero_allowed": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "supportedInputModalities": [
+        "text",
+        "image"
+      ],
+      "supportedOutputModalities": [
+        "text"
+      ]
+    },
+    {
+      "id": "q37fmodel",
+      "object": "model",
+      "created": 1788220800,
+      "owned_by": "qoder",
+      "type": "qoder-cn",
+      "display_name": "Qwen3.7-Flash",
+      "description": "Qwen3.7-Flash via Qoder AI (0.1×)",
+      "context_length": 180000,
+      "supportedInputModalities": [
+        "text",
+        "image"
+      ],
+      "supportedOutputModalities": [
+        "text"
+      ]
+    },
+    {
+      "id": "dmodel",
+      "object": "model",
+      "created": 1788220800,
+      "owned_by": "qoder",
+      "type": "qoder-cn",
+      "display_name": "DeepSeek-V4-Pro",
+      "description": "DeepSeek-V4-Pro via Qoder AI (0.5×)",
+      "context_length": 96000,
+      "thinking": {
+        "zero_allowed": true,
+        "levels": [
+          "high",
+          "max"
+        ]
+      },
+      "supportedInputModalities": [
+        "text",
+        "image"
+      ],
+      "supportedOutputModalities": [
+        "text"
+      ]
+    },
+    {
+      "id": "dfmodel",
+      "object": "model",
+      "created": 1788220800,
+      "owned_by": "qoder",
+      "type": "qoder-cn",
+      "display_name": "DeepSeek-Flash",
+      "description": "DeepSeek-Flash via Qoder AI (0.1×)",
+      "context_length": 180000,
+      "thinking": {
+        "zero_allowed": true,
+        "levels": [
+          "low",
+          "high",
+          "max"
+        ]
+      },
+      "supportedInputModalities": [
+        "text",
+        "image"
+      ],
+      "supportedOutputModalities": [
+        "text"
+      ]
+    },
+    {
+      "id": "gmodel",
+      "object": "model",
+      "created": 1788220800,
+      "owned_by": "qoder",
+      "type": "qoder-cn",
+      "display_name": "GLM-5.3",
+      "description": "GLM-5.3 via Qoder AI (0.8×)",
+      "context_length": 180000,
+      "thinking": {
+        "levels": [
+          "low",
+          "high",
+          "max"
+        ]
+      },
+      "supportedInputModalities": [
+        "text",
+        "image"
+      ],
+      "supportedOutputModalities": [
+        "text"
+      ]
+    },
+    {
+      "id": "gfmodel",
+      "object": "model",
+      "created": 1788220800,
+      "owned_by": "qoder",
+      "type": "qoder-cn",
+      "display_name": "GLM-5.3-Flash",
+      "description": "GLM-5.3-Flash via Qoder AI (0.1×)",
+      "context_length": 1000000,
+      "thinking": {
+        "levels": [
+          "high",
+          "max"
+        ]
+      },
+      "supportedInputModalities": [
+        "text",
+        "image"
+      ],
+      "supportedOutputModalities": [
+        "text"
+      ]
+    },
+    {
+      "id": "gm51model",
+      "object": "model",
+      "created": 1788220800,
+      "owned_by": "qoder",
+      "type": "qoder-cn",
+      "display_name": "GLM-5.2",
+      "description": "GLM-5.2 via Qoder AI (0.6×)",
+      "context_length": 180000,
+      "thinking": {
+        "zero_allowed": true,
+        "levels": [
+          "high",
+          "max"
+        ]
+      },
+      "supportedInputModalities": [
+        "text",
+        "image"
+      ],
+      "supportedOutputModalities": [
+        "text"
+      ]
+    },
+    {
+      "id": "kmodel_latest",
+      "object": "model",
+      "created": 1788220800,
+      "owned_by": "qoder",
+      "type": "qoder-cn",
+      "display_name": "Kimi-K3",
+      "description": "Kimi-K3 via Qoder AI (1.4×)",
+      "context_length": 180000,
+      "thinking": {
+        "levels": [
+          "low",
+          "high",
+          "max"
+        ]
+      },
+      "supportedInputModalities": [
+        "text",
+        "image"
+      ],
+      "supportedOutputModalities": [
+        "text"
+      ]
+    },
+    {
+      "id": "kmodel",
+      "object": "model",
+      "created": 1788220800,
+      "owned_by": "qoder",
+      "type": "qoder-cn",
+      "display_name": "Kimi-K2.8-Preview",
+      "description": "Kimi-K2.8-Preview via Qoder AI (0.8×)",
+      "context_length": 180000,
+      "thinking": {
+        "levels": [
+          "low",
+          "high",
+          "max"
+        ]
+      },
+      "supportedInputModalities": [
+        "text",
+        "image"
+      ],
+      "supportedOutputModalities": [
+        "text"
+      ]
+    },
+    {
+      "id": "mmodel",
+      "object": "model",
+      "created": 1788220800,
+      "owned_by": "qoder",
+      "type": "qoder-cn",
+      "display_name": "MiniMax-M2.7",
+      "description": "MiniMax-M2.7 via Qoder AI (0.2×)",
+      "context_length": 180000,
+      "supportedInputModalities": [
+        "text"
+      ],
+      "supportedOutputModalities": [
+        "text"
+      ]
+    }
   ]
 }

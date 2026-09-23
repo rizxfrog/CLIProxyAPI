@@ -92,6 +92,17 @@ func ComputeCodeBuddyAIModelsHash(models []config.CodeBuddyAIModel) string {
 	return ComputeCodeBuddyCNModelsHash(models)
 }
 
+// ComputeQoderCNModelsHash returns a stable hash for Qoder CN model aliases.
+func ComputeQoderCNModelsHash(models []config.QoderCNModel) string {
+	return ComputeCodeBuddyCNModelsHash(models)
+}
+
+// ComputeQoderAIModelsHash returns a stable hash for international Qoder AI
+// model aliases.
+func ComputeQoderAIModelsHash(models []config.QoderAIModel) string {
+	return ComputeCodeBuddyCNModelsHash(models)
+}
+
 // ComputeGeminiModelsHash returns a stable hash for Gemini model aliases.
 func ComputeGeminiModelsHash(models []config.GeminiModel) string {
 	keys := modelRoutingKeys(func(out func(key string)) {

@@ -894,18 +894,56 @@ func (h *Handler) requestKimiTokenWithDomain(c *gin.Context, domain string) {
 	c.JSON(200, response)
 }
 
+// qoderOAuthRequestSpec parameterizes the Qoder management OAuth flow so the CN
+// and international (Qoder AI) environments share one implementation.
+type qoderOAuthRequestSpec struct {
+	provider    string
+	label       string
+	fileNamePre string
+	baseURL     string
+	newClient   func(cfg *config.Config) *qodercnauth.Client
+}
+
+var qoderCNRequestSpec = qoderOAuthRequestSpec{
+	provider:    constant.QoderCN,
+	label:       "Qoder CN",
+	fileNamePre: "qoder-cn",
+	baseURL:     qodercnauth.GatewayBaseURL,
+	newClient:   qodercnauth.NewClient,
+}
+
+var qoderAIRequestSpec = qoderOAuthRequestSpec{
+	provider:    constant.QoderAI,
+	label:       "Qoder AI",
+	fileNamePre: "qoder-ai",
+	baseURL:     qodercnauth.AIGatewayBaseURL,
+	newClient:   qodercnauth.NewAIClient,
+}
+
 // RequestQoderCNToken starts Qoder CN browser authorization and polls for
 // tokens. Qoder CN uses a browser + PKCE device polling flow:
 // the user approves in a browser at /device/selectAccounts, and the client polls
 // /api/v1/deviceToken/poll until a token is issued.
 func (h *Handler) RequestQoderCNToken(c *gin.Context) {
+	h.requestQoderToken(c, qoderCNRequestSpec)
+}
+
+// RequestQoderAIToken starts international Qoder AI browser authorization and
+// polls for tokens. The flow is identical to Qoder CN; only the hosts differ.
+func (h *Handler) RequestQoderAIToken(c *gin.Context) {
+	h.requestQoderToken(c, qoderAIRequestSpec)
+}
+
+// requestQoderToken runs the shared browser + PKCE device polling authorization
+// for one Qoder environment and persists the resulting credential.
+func (h *Handler) requestQoderToken(c *gin.Context, spec qoderOAuthRequestSpec) {
 	ctx := PopulateAuthContext(context.Background(), c)
-	client := qodercnauth.NewClient(h.cfg)
+	client := spec.newClient(h.cfg)
 
 	device, errStart := client.StartDeviceFlow(ctx, "")
 	if errStart != nil {
-		log.Errorf("Failed to start Qoder CN authorization: %v", errStart)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start Qoder CN authorization"})
+		log.Errorf("Failed to start %s authorization: %v", spec.label, errStart)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start " + spec.label + " authorization"})
 		return
 	}
 
@@ -913,36 +951,36 @@ func (h *Handler) RequestQoderCNToken(c *gin.Context) {
 	// browser approval binds to, and the value the management UI polls against.
 	session := strings.TrimSpace(device.Nonce)
 	if errState := ValidateOAuthState(session); errState != nil {
-		log.WithError(errState).Error("Qoder CN returned an invalid authorization nonce")
+		log.WithError(errState).Errorf("%s returned an invalid authorization nonce", spec.label)
 		c.JSON(http.StatusBadGateway, gin.H{"error": "invalid authorization state"})
 		return
 	}
-	RegisterOAuthSession(session, constant.QoderCN)
+	RegisterOAuthSession(session, spec.provider)
 
 	go func() {
 		pollCtx, cancelPoll := context.WithCancel(ctx)
 		defer cancelPoll()
-		go watchOAuthSessionCancel(pollCtx, cancelPoll, session, constant.QoderCN)
+		go watchOAuthSessionCancel(pollCtx, cancelPoll, session, spec.provider)
 
 		token, errWait := client.WaitForAuthorization(pollCtx, device)
 		if errWait != nil {
-			if !IsOAuthSessionPending(session, constant.QoderCN) {
+			if !IsOAuthSessionPending(session, spec.provider) {
 				return
 			}
-			log.Errorf("Qoder CN authentication failed: %v", errWait)
+			log.Errorf("%s authentication failed: %v", spec.label, errWait)
 			SetOAuthSessionError(session, oauthSessionErrorWithCause("Authentication failed", errWait))
 			return
 		}
-		if !IsOAuthSessionPending(session, constant.QoderCN) {
+		if !IsOAuthSessionPending(session, spec.provider) {
 			return
 		}
 
 		metadata := map[string]any{
-			"type":         constant.QoderCN,
+			"type":         spec.provider,
 			"auth_kind":    "oauth",
 			"access_token": token.AccessToken,
 			"token_type":   token.TokenType,
-			"base_url":     qodercnauth.GatewayBaseURL,
+			"base_url":     spec.baseURL,
 			"machine_id":   device.MachineID,
 			"timestamp":    time.Now().UnixMilli(),
 		}
@@ -956,29 +994,29 @@ func (h *Handler) RequestQoderCNToken(c *gin.Context) {
 			metadata["expired"] = token.ExpiresAt.UTC().Format(time.RFC3339)
 		}
 
-		fileName := fmt.Sprintf("qoder-cn-%d.json", time.Now().UnixMilli())
+		fileName := fmt.Sprintf("%s-%d.json", spec.fileNamePre, time.Now().UnixMilli())
 		record := &coreauth.Auth{
 			ID:       fileName,
-			Provider: constant.QoderCN,
+			Provider: spec.provider,
 			FileName: fileName,
-			Label:    "Qoder CN",
+			Label:    spec.label,
 			Metadata: metadata,
 			Attributes: map[string]string{
 				coreauth.AttributeAuthKind: coreauth.AuthKindOAuth,
-				"base_url":                 qodercnauth.GatewayBaseURL,
+				"base_url":                 spec.baseURL,
 			},
 		}
-		if errGuard := guardOAuthSessionPendingForSave(session, constant.QoderCN); errGuard != nil {
+		if errGuard := guardOAuthSessionPendingForSave(session, spec.provider); errGuard != nil {
 			return
 		}
 		savedPath, errSave := h.saveTokenRecord(ctx, record)
 		if errSave != nil {
-			log.Errorf("Failed to save Qoder CN token: %v", errSave)
+			log.Errorf("Failed to save %s token: %v", spec.label, errSave)
 			SetOAuthSessionError(session, "Failed to save authentication tokens")
 			return
 		}
 		CompleteOAuthSession(session)
-		fmt.Printf("Qoder CN authentication successful! Token saved to %s\n", savedPath)
+		fmt.Printf("%s authentication successful! Token saved to %s\n", spec.label, savedPath)
 	}()
 
 	c.JSON(http.StatusOK, gin.H{

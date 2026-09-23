@@ -243,6 +243,17 @@ func (s *Service) registerModelsForAuthWithCache(ctx context.Context, a *coreaut
 			}
 		}
 		models = applyExcludedModels(models, excluded)
+	case constant.QoderAI:
+		models = registry.GetQoderAIModels()
+		if entry := s.resolveConfigQoderAIKey(a); entry != nil {
+			if len(entry.Models) > 0 {
+				models = buildQoderAIConfigModels(entry)
+			}
+			if authKind == "apikey" {
+				excluded = entry.ExcludedModels
+			}
+		}
+		models = applyExcludedModels(models, excluded)
 	case "devin":
 		models = registry.GetDevinModels()
 		models = applyExcludedModels(models, excluded)
@@ -653,6 +664,15 @@ func (s *Service) resolveConfigQoderCNKey(auth *coreauth.Auth) *config.QoderCNKe
 	return matchQoderCNConfigKey(auth, s.cfg.QoderCNKey)
 }
 
+// resolveConfigQoderAIKey finds the configured international Qoder AI credential
+// backing an auth entry.
+func (s *Service) resolveConfigQoderAIKey(auth *coreauth.Auth) *config.QoderAIKey {
+	if s == nil || s.cfg == nil {
+		return nil
+	}
+	return matchQoderCNConfigKey(auth, s.cfg.QoderAIKey)
+}
+
 func matchQoderCNConfigKey(auth *coreauth.Auth, entries []config.QoderCNKey) *config.QoderCNKey {
 	if auth == nil {
 		return nil
@@ -1054,6 +1074,13 @@ func buildQoderCNConfigModels(entry *config.QoderCNKey) []*ModelInfo {
 		return nil
 	}
 	return buildConfigModels(entry.Models, constant.QoderCN, "openai", constant.QoderCN)
+}
+
+func buildQoderAIConfigModels(entry *config.QoderAIKey) []*ModelInfo {
+	if entry == nil {
+		return nil
+	}
+	return buildConfigModels(entry.Models, constant.QoderAI, "openai", constant.QoderAI)
 }
 
 func buildCodeBuddyCNConfigModels(entry *config.CodeBuddyCNKey) []*ModelInfo {

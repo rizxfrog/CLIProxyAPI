@@ -267,6 +267,7 @@ func detectChangedProviders(oldData, newData *staticModelsJSON) []string {
 		{"xai", oldData.XAI, newData.XAI},
 		{"devin", oldData.Devin, newData.Devin},
 		{"qoder-cn", oldData.QoderCN, newData.QoderCN},
+		{"qoder-ai", oldData.QoderAI, newData.QoderAI},
 		{"meta", oldData.Meta, newData.Meta},
 	}
 

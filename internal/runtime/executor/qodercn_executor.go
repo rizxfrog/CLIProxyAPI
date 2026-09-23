@@ -37,8 +37,10 @@ import (
 // credentials with 401, so this executor implements the COSY signature (see
 // internal/auth/qodercn/cosy.go) instead of using the OpenAI-compatible base.
 //
-// QoderCNModelBaseURL is the gateway origin that hosts the signed agent channel.
+// QoderCNModelBaseURL is the CN gateway origin that hosts the signed agent
+// channel. QoderAIModelBaseURL is the international (Qoder AI) equivalent.
 const QoderCNModelBaseURL = qodercnauth.GatewayBaseURL
+const QoderAIModelBaseURL = qodercnauth.AIGatewayBaseURL
 
 // QoderCNAlgoPath is the signed agent-chat path (gateway-relative, with /algo).
 const QoderCNAlgoPath = "/algo" + qoderCNAgentSignPath
@@ -48,25 +50,75 @@ const QoderCNAlgoPath = "/algo" + qoderCNAgentSignPath
 // rejects OAuth credentials.
 const QoderCNModelDirPath = "/model/v1/chat/completions"
 
-// QoderCNExecutor talks to the Qoder CN agent gateway using the COSY signature.
-type QoderCNExecutor struct {
-	cfg *config.Config
+// qoderAuthDefaults captures the values that differ between the Qoder CN and
+// international (Qoder AI) environments. Both share the entire COSY signature,
+// request envelope, device-poll flow and OAuth client id; only the hosts and the
+// provider identity differ.
+type qoderAuthDefaults struct {
+	// provider is the internal provider identifier (constant.QoderCN / constant.QoderAI).
+	provider string
+	// label names the environment in error messages (e.g. "qoder-cn").
+	label string
+	// gatewayURL is the agent gateway origin for this environment.
+	gatewayURL string
+	// newClient builds an OAuth/OpenAPI client for this environment.
+	newClient func(cfg *config.Config, proxyURL string) *qodercnauth.Client
+}
+
+var qoderCNAuthDefaults = qoderAuthDefaults{
+	provider:   constant.QoderCN,
+	label:      "qoder-cn",
+	gatewayURL: qodercnauth.GatewayBaseURL,
+	newClient:  qodercnauth.NewClientWithProxyURL,
+}
+
+var qoderAIAuthDefaults = qoderAuthDefaults{
+	provider:   constant.QoderAI,
+	label:      "qoder-ai",
+	gatewayURL: qodercnauth.AIGatewayBaseURL,
+	newClient:  qodercnauth.NewAIClientWithProxyURL,
+}
+
+// QoderExecutor talks to a Qoder agent gateway using the COSY signature. The
+// environment (CN vs international) is selected by defaults, so a single type
+// serves both providers.
+type QoderExecutor struct {
+	cfg      *config.Config
+	defaults qoderAuthDefaults
 	// endpoint overrides the gateway URL in tests; empty means the real one.
 	endpoint string
 }
 
 // NewQoderCNExecutor constructs a Qoder CN executor.
-func NewQoderCNExecutor(cfg *config.Config) *QoderCNExecutor {
-	return &QoderCNExecutor{cfg: cfg}
+func NewQoderCNExecutor(cfg *config.Config) *QoderExecutor {
+	return &QoderExecutor{cfg: cfg, defaults: qoderCNAuthDefaults}
 }
 
-// Identifier returns the executor identifier.
-func (e *QoderCNExecutor) Identifier() string { return constant.QoderCN }
+// NewQoderAIExecutor constructs an international (Qoder AI) executor.
+func NewQoderAIExecutor(cfg *config.Config) *QoderExecutor {
+	return &QoderExecutor{cfg: cfg, defaults: qoderAIAuthDefaults}
+}
+
+// Identifier returns the executor identifier for this environment.
+func (e *QoderExecutor) Identifier() string {
+	if e == nil || e.defaults.provider == "" {
+		return constant.QoderCN
+	}
+	return e.defaults.provider
+}
+
+// errLabel names the environment (qoder-cn / qoder-ai) in error messages.
+func (e *QoderExecutor) errLabel() string {
+	if e == nil || strings.TrimSpace(e.defaults.label) == "" {
+		return "qoder-cn"
+	}
+	return e.defaults.label
+}
 
 // RequestToFormat reports the upstream request format. The incoming OpenAI body
 // is rewritten into the Qoder envelope by the executor, so the translator should
 // hand it an OpenAI payload.
-func (e *QoderCNExecutor) RequestToFormat(_ cliproxyexecutor.Request, opts cliproxyexecutor.Options) sdktranslator.Format {
+func (e *QoderExecutor) RequestToFormat(_ cliproxyexecutor.Request, opts cliproxyexecutor.Options) sdktranslator.Format {
 	source := opts.SourceFormat.String()
 	if source == "openai-image" {
 		return opts.SourceFormat
@@ -76,7 +128,7 @@ func (e *QoderCNExecutor) RequestToFormat(_ cliproxyexecutor.Request, opts clipr
 
 // ShouldPrepareRequestAuth reports true when the auth is missing the account
 // identity the COSY signature requires.
-func (e *QoderCNExecutor) ShouldPrepareRequestAuth(auth *cliproxyauth.Auth) bool {
+func (e *QoderExecutor) ShouldPrepareRequestAuth(auth *cliproxyauth.Auth) bool {
 	if auth == nil {
 		return false
 	}
@@ -86,15 +138,15 @@ func (e *QoderCNExecutor) ShouldPrepareRequestAuth(auth *cliproxyauth.Auth) bool
 // PrepareRequestAuth resolves and caches the account identity (uid, name,
 // user_type) needed to sign inference requests. The values are persisted in the
 // auth metadata so subsequent requests skip the lookup.
-func (e *QoderCNExecutor) PrepareRequestAuth(ctx context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {
+func (e *QoderExecutor) PrepareRequestAuth(ctx context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {
 	if auth == nil {
-		return nil, fmt.Errorf("qoder-cn executor: auth is nil")
+		return nil, fmt.Errorf("%s executor: auth is nil", e.errLabel())
 	}
 	accessToken := qoderCNAccessToken(auth)
 	if accessToken == "" {
-		return nil, fmt.Errorf("qoder-cn executor: missing access token")
+		return nil, fmt.Errorf("%s executor: missing access token", e.errLabel())
 	}
-	client := qodercnauth.NewClientWithProxyURL(e.cfg, auth.ProxyURL)
+	client := e.defaults.newClient(e.cfg, auth.ProxyURL)
 	profile, err := client.FetchCosyProfile(ctx, accessToken)
 	if err != nil {
 		return nil, err
@@ -124,7 +176,7 @@ func (e *QoderCNExecutor) PrepareRequestAuth(ctx context.Context, auth *cliproxy
 
 // PrepareRequest injects COSY headers into an ad-hoc request. The signed body
 // depends on the full envelope, so ad-hoc requests only receive the token.
-func (e *QoderCNExecutor) PrepareRequest(req *http.Request, auth *cliproxyauth.Auth) error {
+func (e *QoderExecutor) PrepareRequest(req *http.Request, auth *cliproxyauth.Auth) error {
 	if req == nil {
 		return nil
 	}
@@ -136,9 +188,9 @@ func (e *QoderCNExecutor) PrepareRequest(req *http.Request, auth *cliproxyauth.A
 }
 
 // HttpRequest executes an ad-hoc Qoder CN request with normalized credentials.
-func (e *QoderCNExecutor) HttpRequest(ctx context.Context, auth *cliproxyauth.Auth, req *http.Request) (*http.Response, error) {
+func (e *QoderExecutor) HttpRequest(ctx context.Context, auth *cliproxyauth.Auth, req *http.Request) (*http.Response, error) {
 	if req == nil {
-		return nil, fmt.Errorf("qoder-cn executor: request is nil")
+		return nil, fmt.Errorf("%s executor: request is nil", e.errLabel())
 	}
 	cloned := req.Clone(ctx)
 	if err := e.PrepareRequest(cloned, auth); err != nil {
@@ -149,7 +201,7 @@ func (e *QoderCNExecutor) HttpRequest(ctx context.Context, auth *cliproxyauth.Au
 
 // Execute runs a non-streaming request by driving the streaming upstream and
 // folding the chunks into a single OpenAI chat.completion.
-func (e *QoderCNExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
+func (e *QoderExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
 	opts.Stream = false
 	streamResult, err := e.ExecuteStream(ctx, auth, req, opts)
 	if err != nil {
@@ -175,29 +227,29 @@ func (e *QoderCNExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, 
 }
 
 // CountTokens is not supported by the Qoder CN agent channel.
-func (e *QoderCNExecutor) CountTokens(context.Context, *cliproxyauth.Auth, cliproxyexecutor.Request, cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
-	return cliproxyexecutor.Response{}, fmt.Errorf("qoder-cn executor: count tokens is not supported")
+func (e *QoderExecutor) CountTokens(context.Context, *cliproxyauth.Auth, cliproxyexecutor.Request, cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
+	return cliproxyexecutor.Response{}, fmt.Errorf("%s executor: count tokens is not supported", e.errLabel())
 }
 
-// Refresh rotates Qoder CN OAuth credentials using the stored refresh token.
-func (e *QoderCNExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {
-	return refreshQoderCNAuth(ctx, e.cfg, auth)
+// Refresh rotates Qoder OAuth credentials using the stored refresh token.
+func (e *QoderExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {
+	return refreshQoderAuth(ctx, e.cfg, e.defaults, auth)
 }
 
 // ExecuteStream signs and posts the agent_chat_generation request, then
 // translates the upstream SSE stream into OpenAI chat.completion chunks.
-func (e *QoderCNExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (*cliproxyexecutor.StreamResult, error) {
+func (e *QoderExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (*cliproxyexecutor.StreamResult, error) {
 	reporter := helps.NewExecutorUsageReporter(ctx, e, req.Model, auth)
 
 	accessToken := qoderCNAccessToken(auth)
 	if accessToken == "" {
-		err := qoderCNStatusError{code: http.StatusUnauthorized, msg: "qoder-cn executor: missing access token"}
+		err := qoderCNStatusError{code: http.StatusUnauthorized, msg: e.errLabel() + " executor: missing access token"}
 		reporter.PublishFailure(ctx, err)
 		return nil, err
 	}
 	profile := qoderCNProfile(auth)
 	if strings.TrimSpace(profile.UID) == "" || strings.TrimSpace(profile.Name) == "" {
-		err := qoderCNStatusError{code: http.StatusUnauthorized, msg: "qoder-cn executor: account identity missing; re-login or refresh the credential"}
+		err := qoderCNStatusError{code: http.StatusUnauthorized, msg: e.errLabel() + " executor: account identity missing; re-login or refresh the credential"}
 		reporter.PublishFailure(ctx, err)
 		return nil, err
 	}
@@ -264,7 +316,7 @@ func (e *QoderCNExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.
 		defer close(out)
 		defer func() {
 			if errClose := httpResp.Body.Close(); errClose != nil {
-				log.Errorf("qoder-cn executor: close stream body: %v", errClose)
+				log.Errorf("%s executor: close stream body: %v", e.errLabel(), errClose)
 			}
 		}()
 
@@ -305,7 +357,7 @@ func (e *QoderCNExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.
 		}
 		if errScan := scanner.Err(); errScan != nil {
 			select {
-			case out <- cliproxyexecutor.StreamChunk{Err: fmt.Errorf("qoder-cn executor: read stream: %w", errScan)}:
+			case out <- cliproxyexecutor.StreamChunk{Err: fmt.Errorf("%s executor: read stream: %w", e.errLabel(), errScan)}:
 			case <-ctx.Done():
 			}
 			return
@@ -321,15 +373,23 @@ func (e *QoderCNExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.
 	return &cliproxyexecutor.StreamResult{Headers: httpResp.Header.Clone(), Chunks: out}, nil
 }
 
-// gatewayEndpoint resolves the gateway origin from the auth attributes.
-func (e *QoderCNExecutor) gatewayEndpoint(auth *cliproxyauth.Auth) string {
-	if e != nil && strings.TrimSpace(e.endpoint) != "" {
-		return strings.TrimRight(strings.TrimSpace(e.endpoint), "/")
-	}
+// gatewayEndpoint resolves the gateway origin for this environment. A
+// per-credential override in the auth attributes wins, then the test endpoint.
+func (e *QoderExecutor) gatewayEndpoint(auth *cliproxyauth.Auth) string {
 	if auth != nil && auth.Attributes != nil {
 		if configured := strings.TrimSpace(auth.Attributes["gateway_url"]); configured != "" {
 			return strings.TrimRight(configured, "/")
 		}
+		// base_url is stored as the gateway origin by the synthesizer/login flows.
+		if configured := strings.TrimSpace(auth.Attributes["base_url"]); configured != "" && !strings.Contains(configured, "/model/v1") {
+			return strings.TrimRight(configured, "/")
+		}
+	}
+	if e != nil && strings.TrimSpace(e.endpoint) != "" {
+		return strings.TrimRight(strings.TrimSpace(e.endpoint), "/")
+	}
+	if e != nil && strings.TrimSpace(e.defaults.gatewayURL) != "" {
+		return strings.TrimRight(e.defaults.gatewayURL, "/")
 	}
 	return qodercnauth.GatewayBaseURL
 }
@@ -459,19 +519,19 @@ type qoderCNStatusError struct {
 func (e qoderCNStatusError) Error() string   { return e.msg }
 func (e qoderCNStatusError) StatusCode() int { return e.code }
 
-// refreshQoderCNAuth rotates Qoder CN OAuth credentials via the refresh token.
-func refreshQoderCNAuth(ctx context.Context, cfg *config.Config, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {
+// refreshQoderAuth rotates Qoder OAuth credentials via the refresh token.
+func refreshQoderAuth(ctx context.Context, cfg *config.Config, defaults qoderAuthDefaults, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {
 	if refreshed, handled, err := helps.RefreshAuthViaHome(ctx, cfg, auth); handled {
 		return refreshed, err
 	}
 	if auth == nil {
-		return nil, fmt.Errorf("qoder-cn executor: auth is nil")
+		return nil, fmt.Errorf("%s executor: auth is nil", defaults.label)
 	}
 	refreshToken := qoderCNMetadataString(auth, "refresh_token")
 	if refreshToken == "" {
 		return auth, nil
 	}
-	client := qodercnauth.NewClientWithProxyURL(cfg, auth.ProxyURL)
+	client := defaults.newClient(cfg, auth.ProxyURL)
 	token, err := client.Refresh(ctx, refreshToken)
 	if err != nil {
 		return nil, err
@@ -479,7 +539,7 @@ func refreshQoderCNAuth(ctx context.Context, cfg *config.Config, auth *cliproxya
 	if auth.Metadata == nil {
 		auth.Metadata = make(map[string]any)
 	}
-	auth.Metadata["type"] = constant.QoderCN
+	auth.Metadata["type"] = defaults.provider
 	auth.Metadata["auth_kind"] = cliproxyauth.AuthKindOAuth
 	auth.Metadata["access_token"] = token.AccessToken
 	if strings.TrimSpace(token.RefreshToken) != "" {

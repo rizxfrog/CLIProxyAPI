@@ -44,6 +44,24 @@ func ComputeCodeBuddyAIModelsHash(models []config.CodeBuddyAIModel) string {
 	return modelconfig.ComputeCodeBuddyAIModelsHash(models)
 }
 
+// ComputeQoderCNModelsHash returns a stable hash for Qoder CN model aliases.
+func ComputeQoderCNModelsHash(models []config.QoderCNModel) string {
+	return modelconfig.ComputeQoderCNModelsHash(models)
+}
+
+// ComputeQoderAIModelsHash returns a stable hash for international Qoder AI
+// model aliases.
+func ComputeQoderAIModelsHash(models []config.QoderAIModel) string {
+	return modelconfig.ComputeQoderAIModelsHash(models)
+}
+
+// ComputeQoderModelsHash returns a stable hash for a Qoder model list. The CN
+// and international (AI) entries share the same shape, so one function serves
+// both environments.
+func ComputeQoderModelsHash(models []config.QoderCNModel) string {
+	return modelconfig.ComputeQoderCNModelsHash(models)
+}
+
 // ComputeGeminiModelsHash returns a stable hash for Gemini model aliases.
 func ComputeGeminiModelsHash(models []config.GeminiModel) string {
 	return modelconfig.ComputeGeminiModelsHash(models)

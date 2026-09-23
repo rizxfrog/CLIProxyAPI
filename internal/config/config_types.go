@@ -889,9 +889,10 @@ type CodeBuddyAIModel = CodeBuddyCNModel
 // api-key field carries the OAuth access token produced by the browser + PKCE
 // device flow (or a manually pasted bearer token).
 //
-// Requests are sent to the Qoder model server's OpenAI-compatible
-// /model/v1/chat/completions endpoint, which accepts a plain bearer token and
-// does not require the bundled WASM request signature.
+// Inference posts a COSY-signed body to the Qoder agent gateway's
+// /algo/api/v2/service/pro/sse/agent_chat_generation endpoint. The legacy
+// OpenAI-compatible /model/v1/chat/completions endpoint rejects these
+// credentials with 401 and is no longer used.
 type QoderCNKey struct {
 	// APIKey is the Qoder OAuth access token.
 	APIKey string `yaml:"api-key" json:"api-key"`
@@ -912,8 +913,8 @@ type QoderCNKey struct {
 	// Prefix optionally namespaces models for this credential (e.g. "qd/claude-opus-4-6").
 	Prefix string `yaml:"prefix,omitempty" json:"prefix,omitempty"`
 
-	// BaseURL overrides the model-server origin. Defaults to
-	// https://api2-v2.qoder.sh. The executor appends /model/v1/chat/completions.
+	// BaseURL overrides the agent gateway origin. Defaults to
+	// https://gateway.qoder.com.cn (CN) or https://api3.qoder.sh (international).
 	BaseURL string `yaml:"base-url,omitempty" json:"base-url,omitempty"`
 
 	// ProxyURL overrides the global proxy setting for this credential.
@@ -934,6 +935,14 @@ type QoderCNKey struct {
 
 // QoderCNModel uses the shared static/configured model mapping shape.
 type QoderCNModel = CodeBuddyCNModel
+
+// QoderAIKey represents an international Qoder AI (qoder.com / qoder.sh)
+// credential. It shares the credential shape, device-poll flow and COSY
+// signature with Qoder CN; only the environment hosts differ.
+type QoderAIKey = QoderCNKey
+
+// QoderAIModel uses the shared static/configured model mapping shape.
+type QoderAIModel = QoderCNModel
 
 // TraeKey represents a TRAE SOLO CN desktop credential (Cloud-IDE-JWT +
 // optional refresh token + machine/device identity). The upstream protocol is

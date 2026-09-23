@@ -211,6 +211,7 @@ func baselineExecutorAuths() []*coreauth.Auth {
 		"codebuddy-cn",
 		constant.CodeBuddyAI,
 		constant.QoderCN,
+		constant.QoderAI,
 		constant.DeepSeekWeb,
 		"kimi-ai",
 		"kimi.ai",
@@ -316,6 +317,8 @@ func (s *Service) registerExecutorForAuth(a *coreauth.Auth, forceReplace bool) {
 		s.coreManager.RegisterExecutor(executor.NewTraeExecutor(cfg))
 	case constant.QoderCN:
 		s.coreManager.RegisterExecutor(executor.NewQoderCNExecutor(cfg))
+	case constant.QoderAI:
+		s.coreManager.RegisterExecutor(executor.NewQoderAIExecutor(cfg))
 	case "xai":
 		if !forceReplace {
 			existingExecutor, hasExecutor := s.coreManager.Executor("xai")

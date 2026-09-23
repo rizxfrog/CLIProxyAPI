@@ -91,13 +91,17 @@ type QoderCNQuota struct {
 	Rows []QoderCNQuotaRow `json:"rows"`
 }
 
-// qoderCNQuotaOpenAPIBase is the OpenAPI origin the quota handler talks to. It
-// is a variable so tests can point the handler at a stub origin; production
+// qoderCNQuotaOpenAPIBase is the CN OpenAPI origin the quota handler talks to.
+// It is a variable so tests can point the handler at a stub origin; production
 // always leaves it at the package default.
 var qoderCNQuotaOpenAPIBase = qodercnauth.OpenAPIBaseURL
 
-// GetQoderCNQuota returns the credit ledger for one Qoder CN credential,
-// identified by auth_index.
+// qoderAIQuotaOpenAPIBase is the international OpenAPI origin, used when the
+// credential belongs to the qoder-ai provider.
+var qoderAIQuotaOpenAPIBase = qodercnauth.AIOpenAPIBaseURL
+
+// GetQoderCNQuota returns the credit ledger for one Qoder credential (CN or
+// international AI), identified by auth_index.
 //
 // A 401 from the gateway usually means the stored access token went stale, so
 // the credential is refreshed once through the stored refresh token and the read
@@ -110,19 +114,27 @@ func (h *Handler) GetQoderCNQuota(c *gin.Context) {
 		return
 	}
 	auth := h.authByIndex(authIndex)
-	if auth == nil || !strings.EqualFold(strings.TrimSpace(auth.Provider), constant.QoderCN) {
-		writeQuotaError(c, http.StatusNotFound, "qoder-cn credential not found")
+	provider := ""
+	if auth != nil {
+		provider = strings.ToLower(strings.TrimSpace(auth.Provider))
+	}
+	if provider != constant.QoderCN && provider != constant.QoderAI {
+		writeQuotaError(c, http.StatusNotFound, "qoder credential not found")
 		return
 	}
 	accessToken := qoderCNAccessToken(auth)
 	if accessToken == "" {
-		writeQuotaError(c, http.StatusBadRequest, "qoder-cn credential has no access token")
+		writeQuotaError(c, http.StatusBadRequest, "qoder credential has no access token")
 		return
 	}
 
+	openAPIBase := qoderCNQuotaOpenAPIBase
+	if provider == constant.QoderAI {
+		openAPIBase = qoderAIQuotaOpenAPIBase
+	}
 	client := qodercnauth.NewClientWithOptions(h.cfg, qodercnauth.Options{
 		ProxyURL:       auth.ProxyURL,
-		OpenAPIBaseURL: qoderCNQuotaOpenAPIBase,
+		OpenAPIBaseURL: openAPIBase,
 	})
 
 	usage, status, errFetch := h.fetchQoderCNQuotaPair(c.Request.Context(), client, auth, accessToken)
