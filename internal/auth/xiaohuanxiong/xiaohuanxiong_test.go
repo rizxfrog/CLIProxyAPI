@@ -12,8 +12,9 @@ import (
 	"time"
 )
 
-// TestParseCallbackCode covers the deep-link, https, fragment, and bare-code
-// shapes a user or the desktop client can hand us.
+// TestParseCallbackCode covers the two supported formats — the office-raccoon://
+// deep link and a bare code — plus the https, fragment, and query-only shapes a
+// user or the desktop client can hand us.
 func TestParseCallbackCode(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -21,13 +22,30 @@ func TestParseCallbackCode(t *testing.T) {
 		want    string
 		wantErr bool
 	}{
-		{name: "desktop deep link", raw: "office-raccoon://auth/callback?code=abc123", want: "abc123"},
-		{name: "https callback", raw: "https://xiaohuanxiong.com/callback?code=xyz789&state=s", want: "xyz789"},
-		{name: "fragment code", raw: "office-raccoon://auth/callback#code=frag42", want: "frag42"},
+		// The two formats the UI promises to accept.
+		{name: "deep link", raw: "office-raccoon://auth/callback?code=abc123", want: "abc123"},
 		{name: "bare code", raw: "raw-code-9999", want: "raw-code-9999"},
-		{name: "trims whitespace", raw: "  office-raccoon://auth/callback?code= pad  ", want: "pad"},
+
+		{name: "deep link with state", raw: "office-raccoon://auth/callback?code=abc123&state=s", want: "abc123"},
+		{name: "https callback", raw: "https://xiaohuanxiong.com/callback?code=xyz789&state=s", want: "xyz789"},
+		{name: "loopback callback", raw: "http://localhost:1455/auth/callback?code=loop42&state=s", want: "loop42"},
+		{name: "fragment code", raw: "office-raccoon://auth/callback#code=frag42", want: "frag42"},
+		{name: "query pair without leading question mark", raw: "code=abc123", want: "abc123"},
+		{name: "query pair with leading question mark", raw: "?code=abc123", want: "abc123"},
+		{name: "ide redirect parameter", raw: "http://127.0.0.1:8080/cb?authorization_code=ide42", want: "ide42"},
+		{name: "uppercase parameter name", raw: "code=ABC123", want: "ABC123"},
+		{name: "bare code that looks like a query", raw: "a=1+b", want: "a=1+b"},
+		{name: "bare code keeping base64 padding", raw: "YWJjZA==", want: "YWJjZA=="},
+		{name: "bare code with post-url characters", raw: "abc/def+ghi?", want: "abc/def+ghi?"},
+
+		{name: "trims whitespace around deep link", raw: "  office-raccoon://auth/callback?code= pad  ", want: "pad"},
+		{name: "trims whitespace around bare code", raw: "  MyCode-1234  ", want: "MyCode-1234"},
+
 		{name: "empty", raw: "", wantErr: true},
-		{name: "url without code", raw: "office-raccoon://auth/callback?state=only", wantErr: true},
+		{name: "whitespace only", raw: "   ", wantErr: true},
+		{name: "deep link without code", raw: "office-raccoon://auth/callback?state=only", wantErr: true},
+		{name: "https callback without code", raw: "https://xiaohuanxiong.com/callback?state=only", wantErr: true},
+		{name: "query only with no code", raw: "?state=only", wantErr: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

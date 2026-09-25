@@ -198,41 +198,126 @@ func CallbackURL() string {
 	return fmt.Sprintf("%s://%s%s", CallbackScheme, CallbackHost, CallbackPath)
 }
 
-// ParseCallbackCode extracts the one-time authorization code from a deep link.
+// callbackCodeQueryKeys are the query/fragment keys that carry the one-time
+// authorization code. The desktop deep link uses "code"; the IDE redirect
+// branch of the web authorize page appends "authorization_code".
+var callbackCodeQueryKeys = []string{"code", "authorization_code"}
+
+// ParseCallbackCode extracts the one-time authorization code from what the user
+// pasted. Both formats are supported:
 //
-// Accepted shapes:
+//	office-raccoon://auth/callback?code=<code>   (desktop deep link)
+//	<code>                                       (bare authorization code)
 //
-//	office-raccoon://auth/callback?code=...
-//	https://.../callback?code=...
-//	a bare authorization code
+// The delivery mechanism is a client-side deep link that never reaches a server
+// (see CallbackURL), so the proxy cannot observe the redirect; the operator
+// pastes whatever the browser or DevTools shows. An https callback, a query
+// pair pasted without its leading "?" or with its key ("code=<code>",
+// "authorization_code=<code>"), and a fragment form are all accepted, because
+// those are the other places the code surfaces. An authorization code is opaque
+// and may itself contain "=" or post-URL characters (base64 padding), so input
+// without a recognizable code parameter is returned verbatim as the code.
 func ParseCallbackCode(raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return "", fmt.Errorf("xiaohuanxiong: empty callback URL")
 	}
 
-	u, err := url.Parse(raw)
-	if err != nil || u.Scheme == "" {
-		// Tolerate a pasted bare code. Authorization codes are opaque, so accept
-		// anything that does not look like a URL.
-		if !strings.Contains(raw, "://") && !strings.Contains(raw, "?") {
-			return raw, nil
+	if hasCallbackCodeParam(raw) {
+		// A query string or fragment pasted on its own ("code=<code>",
+		// "?code=<code>", "#code=<code>").
+		if code := codeFromQuery(raw); code != "" {
+			return code, nil
 		}
-		return "", fmt.Errorf("xiaohuanxiong: invalid callback URL")
-	}
-
-	if code := strings.TrimSpace(u.Query().Get("code")); code != "" {
-		return code, nil
-	}
-	// Some redirect forms carry the code in the fragment.
-	if frag := strings.TrimSpace(u.Fragment); frag != "" {
-		if values, errFrag := url.ParseQuery(frag); errFrag == nil {
-			if code := strings.TrimSpace(values.Get("code")); code != "" {
+		u, errParse := url.Parse(raw)
+		if errParse != nil {
+			return "", fmt.Errorf("xiaohuanxiong: invalid callback URL")
+		}
+		if code := codeFromQuery(u.RawQuery); code != "" {
+			return code, nil
+		}
+		// Some redirect forms carry the code in the fragment.
+		if code := codeFromQuery(u.Fragment); code != "" {
+			return code, nil
+		}
+		// url.Parse keeps the query of a non-hierarchical URL (for example
+		// office-raccoon:auth/callback?code=...) in Opaque instead of RawQuery.
+		if idxOpaque := strings.Index(u.Opaque, "?"); idxOpaque >= 0 {
+			if code := codeFromQuery(u.Opaque[idxOpaque+1:]); code != "" {
 				return code, nil
 			}
 		}
+		// A deep link or https callback with no usable code is a genuine user
+		// error; report it instead of returning the URL as the code.
+		if strings.Contains(raw, "://") || strings.HasPrefix(raw, "?") || strings.HasPrefix(raw, "#") {
+			return "", fmt.Errorf("xiaohuanxiong: callback URL has no code parameter")
+		}
 	}
-	return "", fmt.Errorf("xiaohuanxiong: callback URL has no code parameter")
+
+	// Not URL- or query-shaped: treat it as the opaque one-time code itself.
+	return raw, nil
+}
+
+// hasCallbackCodeParam reports whether the input carries URL/query syntax that
+// should be parsed rather than treated as a bare code.
+func hasCallbackCodeParam(raw string) bool {
+	if strings.Contains(raw, "://") {
+		return true
+	}
+	// A leading delimiter is query/fragment syntax; an opaque one-time code never
+	// starts with it.
+	if strings.HasPrefix(raw, "?") || strings.HasPrefix(raw, "#") {
+		return true
+	}
+	for _, key := range callbackCodeQueryKeys {
+		if strings.Contains(raw, key+"=") {
+			return true
+		}
+	}
+	return false
+}
+
+// codeFromQuery parses query-like text (with or without a leading "?/&#" and
+// with or without a preceding URL path) and returns the authorization code.
+func codeFromQuery(rawQuery string) string {
+	rawQuery = strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(rawQuery), "?#&"))
+	if rawQuery == "" {
+		return ""
+	}
+	values, errParse := url.ParseQuery(rawQuery)
+	if errParse != nil {
+		return ""
+	}
+	for _, key := range callbackCodeQueryKeys {
+		if code := strings.TrimSpace(values.Get(key)); code != "" {
+			return code
+		}
+	}
+	// Fall back to a case-insensitive scan: a hand-typed key may not preserve
+	// the upstream's lowercase spelling.
+	for name, entries := range values {
+		if !isCallbackCodeKey(name) {
+			continue
+		}
+		for _, entry := range entries {
+			if code := strings.TrimSpace(entry); code != "" {
+				return code
+			}
+		}
+	}
+	return ""
+}
+
+// isCallbackCodeKey reports whether a query key spells a code parameter,
+// ignoring case and hyphen/underscore spelling.
+func isCallbackCodeKey(name string) bool {
+	normalized := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(name), "-", "_"))
+	for _, key := range callbackCodeQueryKeys {
+		if normalized == key {
+			return true
+		}
+	}
+	return false
 }
 
 // apiEnvelope is the shared response envelope for the web API.
