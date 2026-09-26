@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestValidateDevinModelsJSON(t *testing.T) {
@@ -194,4 +195,45 @@ func TestDevinModelsRemoteFetchFallback(t *testing.T) {
 
 	// Restore original embedded data for following tests
 	_, _ = loadDevinModelsFromBytes(embeddedDevinModelsJSON, "restore-embed")
+}
+
+func TestFetchDevinModelsFromRemote_ContextNotCanceledBeforeRead_Issue6095(t *testing.T) {
+	origURLs := devinModelsURLs
+	defer func() { devinModelsURLs = origURLs }()
+
+	headerFlushed := make(chan struct{})
+	sendBody := make(chan struct{})
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		close(headerFlushed)
+		<-sendBody
+		_, _ = w.Write([]byte(`{"devin": [{"id": "devin/swe-2"}]}`))
+	}))
+	defer ts.Close()
+
+	go func() {
+		<-headerFlushed
+		// Yield briefly to let client.Do return and advance to body reading before streaming body chunks.
+		time.Sleep(20 * time.Millisecond)
+		close(sendBody)
+	}()
+
+	devinModelsURLs = []string{ts.URL + "/devin_models.json"}
+
+	body, source := fetchDevinModelsFromRemote(context.Background())
+	if body == nil || source == "" {
+		t.Fatalf("expected successful fetch of devin models, got nil body (source=%q)", source)
+	}
+	expectedBody := `{"devin": [{"id": "devin/swe-2"}]}`
+	if string(body) != expectedBody {
+		t.Fatalf("expected body %q, got %q", expectedBody, string(body))
+	}
+	expectedSource := ts.URL + "/devin_models.json"
+	if source != expectedSource {
+		t.Fatalf("expected source %q, got %q", expectedSource, source)
+	}
 }
